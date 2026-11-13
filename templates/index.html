@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-TCG Deck Studio</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #181b22;
+            --borde: #2a2f3d;
+            --acento: #e63946;
+            --acento-sec: #457b9d;
+            --texto: #f1faee;
+            --gris: #8d99ae;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--texto); margin: 0; padding-bottom: 65px; }
+
+        /* MENÚ DE NAVEGACIÓN */
+        header {
+            background: var(--panel); border-bottom: 1px solid var(--borde);
+            padding: 12px 20px; display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-weight: 800; font-size: 18px; color: var(--acento); display: flex; align-items: center; gap: 10px; }
+        .mazo-activo-badge { background: #222733; padding: 5px 12px; border-radius: 20px; font-size: 13px; color: var(--gris); }
+        .nav-links { display: flex; gap: 10px; }
+        .nav-btn {
+            background: transparent; border: 1px solid var(--borde); color: var(--texto);
+            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;
+        }
+        .nav-btn.activo { background: var(--acento); border-color: var(--acento); }
+
+        /* CONTENEDOR DE VISTAS */
+        .vista { display: none; padding: 20px; max-width: 1400px; margin: 0 auto; }
+        .vista.activa { display: block; }
+
+        /* VISTA 1: MIS MAZOS */
+        .crear-mazo-box {
+            background: var(--panel); padding: 18px; border-radius: 10px; border: 1px solid var(--borde);
+            display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; align-items: center;
+        }
+        select, input, button {
+            padding: 10px 14px; border-radius: 6px; border: 1px solid var(--borde);
+            background: #12141a; color: var(--texto); font-size: 14px;
+        }
+        button.btn-primario { background: var(--acento); border: none; font-weight: bold; cursor: pointer; }
+        button.btn-secundario { background: var(--acento-sec); border: none; font-weight: bold; cursor: pointer; }
+        .mazos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+        .mazo-card {
+            background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 16px;
+            display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+        }
+        .mazo-card h3 { margin: 0; font-size: 18px; }
+        .badge-juego { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; background: var(--acento-sec); font-weight: bold; }
+
+        /* VISTA 2: ARMADOR DE MAZO */
+        .builder-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .builder-layout { grid-template-columns: 1fr; } }
+        .panel-box { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 15px; }
+        .barra-busqueda { display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
+        .barra-busqueda input { flex: 1; }
+        .grilla-cartas {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+            gap: 10px; max-height: 70vh; overflow-y: auto; padding-right: 5px;
+        }
+        .grilla-mazo {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(75px, 1fr));
+            gap: 6px; min-height: 110px; background: #12141a; padding: 10px; border-radius: 8px; margin-bottom: 15px;
+        }
+        .carta-item {
+            background: #12141a; padding: 4px; border-radius: 6px; text-align: center;
+            cursor: pointer; position: relative; border: 1px solid transparent; transition: transform 0.12s;
+        }
+        .carta-item:hover { transform: scale(1.05); border-color: var(--acento); }
+        .carta-item img { width: 100%; border-radius: 4px; display: block; }
+        .carta-item p { font-size: 11px; margin: 4px 0 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .btn-add-rapido {
+            position: absolute; top: 6px; right: 6px; background: var(--acento); color: #fff;
+            border: none; border-radius: 50%; width: 24px; height: 24px; font-weight: bold; cursor: pointer;
+        }
+
+        /* VISTA 3: MÉTRICAS Y ESTADÍSTICAS */
+        .metricas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .kpi-card { background: var(--panel); border: 1px solid var(--borde); padding: 16px; border-radius: 10px; text-align: center; }
+        .kpi-valor { font-size: 28px; font-weight: 800; color: var(--acento); margin: 6px 0; }
+        .graficos-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (max-width: 800px) { .graficos-layout { grid-template-columns: 1fr; } }
+        .barra-fila { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+        .barra-label { width: 95px; text-align: right; color: var(--gris); }
+        .barra-fondo { flex: 1; background: #12141a; height: 18px; border-radius: 4px; overflow: hidden; }
+        .barra-relleno { background: var(--acento); height: 100%; transition: width 0.3s; }
+        .barra-relleno.azul { background: var(--acento-sec); }
+
+        /* MODAL DETALLE DE CARTA */
+        .modal-bg {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+            z-index: 200; align-items: center; justify-content: center; padding: 15px;
+        }
+        .modal-bg.activo { display: flex; }
+        .modal-contenido {
+            background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
+            max-width: 650px; width: 100%; padding: 20px; display: flex; gap: 20px; flex-wrap: wrap;
+        }
+        .modal-contenido img { width: 200px; border-radius: 8px; margin: 0 auto; }
+        .modal-info { flex: 1; min-width: 240px; }
+        .modal-desc { background: #12141a; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.4; max-height: 180px; overflow-y: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <span>🃏 Multi-TCG Studio</span>
+            <span class="mazo-activo-badge" id="header-mazo-info">Sin mazo seleccionado</span>
+        </div>
+        <nav class="nav-links">
+            <button class="nav-btn activo" id="tab-mazos" onclick="cambiarVista('mazos')">📁 Mis Mazos</button>
+            <button class="nav-btn" id="tab-armador" onclick="cambiarVista('armador')">🛠️ Armador de Mazo</button>
+            <button class="nav-btn" id="tab-metricas" onclick="cambiarVista('metricas')">📊 Métricas y Estadísticas</button>
+        </nav>
+    </header>
+
+    <!-- VISTA 1: MIS MAZOS -->
+    <section class="vista activa" id="vista-mazos">
+        <h2>Crear Nuevo Mazo</h2>
+        <div class="crear-mazo-box">
+            <input type="text" id="nuevo-mazo-nombre" placeholder="Nombre del mazo (ej. Tenpai Dragon, Omnimon Red)..." style="flex:1; min-width:220px;">
+            <select id="nuevo-mazo-juego">
+                <option value="yugioh">Yu-Gi-Oh!</option>
+                <option value="digimon">Digimon TCG</option>
+                <option value="magic">Magic: The Gathering</option>
+                <option value="vanguard">Cardfight!! Vanguard</option>
+                <option value="fftcg">Final Fantasy TCG</option>
+                <option value="fab">Flesh and Blood</option>
+            </select>
+            <button class="btn-primario" onclick="crearNuevoMazo()">+ Crear y Armar Mazo</button>
+        </div>
+
+        <h2>Mazos Guardados</h2>
+        <div class="mazos-grid" id="lista-mazos"></div>
+    </section>
+
+    <!-- VISTA 2: ARMADOR DE MAZO -->
+    <section class="vista" id="vista-armador">
+        <div class="builder-layout">
+            <!-- BUSCADOR -->
+            <div class="panel-box">
+                <div class="barra-busqueda">
+                    <select id="juego-busqueda" onchange="sincronizarReglas()">
+                        <option value="yugioh">Yu-Gi-Oh!</option>
+                        <option value="digimon">Digimon TCG</option>
+                        <option value="magic">Magic: The Gathering</option>
+                        <option value="vanguard">Cardfight!! Vanguard</option>
+                        <option value="fftcg">Final Fantasy TCG</option>
+                        <option value="fab">Flesh and Blood</option>
+                    </select>
+                    <input type="text" id="input-q" placeholder="Buscar carta en inglés (ej. Tenpai, Omnimon, Bolt)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+                    <button class="btn-primario" onclick="buscarCartas()">Buscar</button>
+                </div>
+                <div id="estado-busqueda" style="font-size:13px; color:var(--gris); margin-bottom:8px;">Tocá una carta para leer su efecto o el botón (+) para sumarla al mazo.</div>
+                <div class="grilla-cartas" id="resultados-busqueda"></div>
+            </div>
+
+            <!-- MAZO ACTUAL -->
+            <div class="panel-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                    <input type="text" id="nombre-mazo-actual" value="Mi Mazo" style="font-weight:bold; font-size:16px;">
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-secundario" onclick="guardarMazoActual()">💾 Guardar Mazo</button>
+                        <button onclick="vaciarMazoActual()">🗑️ Vaciar</button>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; font-size:14px; margin-bottom:6px;">
+                    <strong id="label-main-zone">Mazo Principal</strong>
+                    <span id="contador-main">0 / 60</span>
+                </div>
+                <div class="grilla-mazo" id="grilla-main-deck"></div>
+
+                <div style="display:flex; justify-content:space-between; font-size:14px; margin-bottom:6px;">
+                    <strong id="label-sec-zone">Mazo Extra / Secundario</strong>
+                    <span id="contador-sec">0 / 15</span>
+                </div>
+                <div class="grilla-mazo" id="grilla-sec-deck" style="min-height:85px;"></div>
+                <small style="color:var(--gris);">Tip: Hacé clic sobre cualquier carta dentro de tu mazo para quitar 1 copia.</small>
+            </div>
+        </div>
+    </section>
+
+    <!-- VISTA 3: MÉTRICAS Y ESTADÍSTICAS -->
+    <section class="vista" id="vista-metricas">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:15px;">
+            <h2 style="margin:0;">Análisis y Estadísticas del Mazo</h2>
+            <button class="btn-secundario" onclick="simularMano()">🎲 Robar Mano de Prueba (5 Cartas)</button>
+        </div>
+
+        <div class="metricas-grid">
+            <div class="kpi-card">
+                <div>Total Mazo Principal</div>
+                <div class="kpi-valor" id="kpi-total-main">0</div>
+                <small id="kpi-estado-legal" style="color:var(--gris);">Faltan cartas</small>
+            </div>
+            <div class="kpi-card">
+                <div>Cartas Distintas (Únicas)</div>
+                <div class="kpi-valor" id="kpi-unicas">0</div>
+                <small style="color:var(--gris);">Variedad del mazo</small>
+            </div>
+            <div class="kpi-card">
+                <div>Costo / Nivel Promedio</div>
+                <div class="kpi-valor" id="kpi-promedio-costo">0.0</div>
+                <small style="color:var(--gris);">Curva general</small>
+            </div>
+            <div class="kpi-card">
+                <div>Mazo Extra / Secundario</div>
+                <div class="kpi-valor" id="kpi-total-sec">0</div>
+                <small style="color:var(--gris);">Cartas de soporte</small>
+            </div>
+        </div>
+
+        <div class="graficos-layout">
+            <div class="panel-box">
+                <h3 style="margin-top:0;">Curva de Nivel / Costo / Grado</h3>
+                <div id="grafico-curva"></div>
+            </div>
+            <div class="panel-box">
+                <h3 style="margin-top:0;">Distribución por Categoría de Carta</h3>
+                <div id="grafico-tipos"></div>
+            </div>
+        </div>
+
+        <div class="panel-box">
+            <h3 style="margin-top:0;">Mano Inicial Simulada (Probabilidad de Robo)</h3>
+            <div class="grilla-mazo" id="grilla-mano-prueba" style="min-height:130px;"></div>
+        </div>
+    </section>
+
+    <!-- MODAL DETALLE DE CARTA -->
+    <div class="modal-bg" id="modal-carta" onclick="if(event.target===this) cerrarModal()">
+        <div class="modal-contenido" id="modal-body"></div>
+    </div>
+
+    <script>
+        const REGLAS = {
+            yugioh:   { nombre: "Yu-Gi-Oh!", maxCopias: 3, minMain: 40, maxMain: 60, maxSec: 15, labelMain: "Main Deck (40-60)", labelSec: "Extra Deck (0-15)" },
+            digimon:  { nombre: "Digimon TCG", maxCopias: 4, minMain: 50, maxMain: 50, maxSec: 5, labelMain: "Main Deck (50 exactas)", labelSec: "Digi-Egg Deck (0-5)" },
+            magic:    { nombre: "Magic: The Gathering", maxCopias: 4, minMain: 60, maxMain: 100, maxSec: 15, labelMain: "Main Deck (Mín. 60)", labelSec: "Sideboard (0-15)" },
+            vanguard: { nombre: "Cardfight!! Vanguard", maxCopias: 4, minMain: 50, maxMain: 50, maxSec: 16, labelMain: "Main Deck (50 exactas)", labelSec: "G-Zone (0-16)" },
+            fftcg:    { nombre: "Final Fantasy TCG", maxCopias: 3, minMain: 50, maxMain: 50, maxSec: 0, labelMain: "Main Deck (50 exactas)", labelSec: "Sin Mazo Secundario" },
+            fab:      { nombre: "Flesh and Blood", maxCopias: 3, minMain: 60, maxMain: 80, maxSec: 11, labelMain: "Arena Deck (60-80)", labelSec: "Héroe, Armas y Equipo" }
+        };
+
+        let mazosGuardados = [];
+        let UltimosResultados = [];
+        let mazoActual = {
+            id: null,
+            name: "Nuevo Mazo",
+            game: "yugioh",
+            main: [],
+            secondary: []
+        };
+
+        function cambiarVista(vista) {
+            document.querySelectorAll('.vista').forEach(v => v.classList.remove('activa'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('activo'));
+            document.getElementById(`vista-${vista}`).classList.add('activa');
+            document.getElementById(`tab-${vista}`).classList.add('activo');
+            if (vista === 'metricas') calcularMetricas();
+            if (vista === 'mazos') cargarMazosServidor();
+        }
+
+        async function cargarMazosServidor() {
+            const res = await fetch('/api/decks');
+            mazosGuardados = await res.json();
+            const cont = document.getElementById('lista-mazos');
+            if (!mazosGuardados.length) {
+                cont.innerHTML = `<p style="color:var(--gris);">Todavía no tenés mazos guardados. Creá uno arriba para empezar.</p>`;
+                return;
+            }
+            cont.innerHTML = mazosGuardados.map(m => {
+                const infoJuego = REGLAS[m.game] || REGLAS.yugioh;
+                return `
+                    <div class="mazo-card">
+                        <div>
+                            <span class="badge-juego">${infoJuego.nombre}</span>
+                            <h3 style="margin-top:8px;">${m.name}</h3>
+                            <p style="color:var(--gris); font-size:13px; margin:6px 0;">
+                                Principal: <b>${m.main.length}</b> cartas | Secundario: <b>${m.secondary.length}</b>
+                            </p>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn-primario" style="flex:1;" onclick="abrirMazo('${m.id}')">✏️ Editar / Ver Métricas</button>
+                            <button onclick="borrarMazo('${m.id}')">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function crearNuevoMazo() {
+            const nombre = document.getElementById('nuevo-mazo-nombre').value.trim() || "Mazo Sin Nombre";
+            const juego = document.getElementById('nuevo-mazo-juego').value;
+            mazoActual = { id: null, name: nombre, game: juego, main: [], secondary: [] };
+            document.getElementById('juego-busqueda').value = juego;
+            document.getElementById('nombre-mazo-actual').value = nombre;
+            document.getElementById('resultados-busqueda').innerHTML = '';
+            sincronizarReglas();
+            renderizarMazo();
+            cambiarVista('armador');
+        }
+
+        function abrirMazo(id) {
+            const encontrado = mazosGuardados.find(m => m.id === id);
+            if (!encontrado) return;
+            mazoActual = JSON.parse(JSON.stringify(encontrado));
+            document.getElementById('juego-busqueda').value = mazoActual.game;
+            document.getElementById('nombre-mazo-actual').value = mazoActual.name;
+            document.getElementById('resultados-busqueda').innerHTML = '';
+            sincronizarReglas();
+            renderizarMazo();
+            cambiarVista('armador');
+        }
+
+        async function borrarMazo(id) {
+            await fetch(`/api/decks/${id}`, { method: 'DELETE' });
+            cargarMazosServidor();
+        }
+
+        async function guardarMazoActual() {
+            mazoActual.name = document.getElementById('nombre-mazo-actual').value.trim() || "Mi Mazo";
+            mazoActual.game = document.getElementById('juego-busqueda').value;
+            const res = await fetch('/api/decks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(mazoActual)
+            });
+            mazoActual = await res.json();
+            actualizarHeaderMazo();
+            alert(`Mazo "${mazoActual.name}" guardado correctamente.`);
+        }
+
+        function sincronizarReglas() {
+            const juego = document.getElementById('juego-busqueda').value;
+            mazoActual.game = juego;
+            const r = REGLAS[juego];
+            document.getElementById('label-main-zone').innerText = r.labelMain;
+            document.getElementById('label-sec-zone').innerText = r.labelSec;
+            renderizarMazo();
+        }
+
+        function actualizarHeaderMazo() {
+            const r = REGLAS[mazoActual.game] || REGLAS.yugioh;
+            document.getElementById('header-mazo-info').innerText = `${mazoActual.name} (${r.nombre} - ${mazoActual.main.length} cartas)`;
+        }
+
+        async function buscarCartas() {
+            const juego = document.getElementById('juego-busqueda').value;
+            const q = document.getElementById('input-q').value.trim();
+            const estado = document.getElementById('estado-busqueda');
+            const cont = document.getElementById('resultados-busqueda');
+            if (!q) return;
+
+            estado.innerText = 'Consultando API en inglés y guardando imágenes en caché...';
+            cont.innerHTML = '';
+
+            const res = await fetch(`/api/buscar?juego=${juego}&q=${encodeURIComponent(q)}`);
+            UltimosResultados = await res.json();
+
+            estado.innerText = UltimosResultados.length
+                ? `Mostrando ${UltimosResultados.length} resultados (Idioma original: Inglés).`
+                : 'No se encontraron cartas con ese nombre.';
+
+            cont.innerHTML = UltimosResultados.map((c, idx) => `
+                <div class="carta-item">
+                    <button class="btn-add-rapido" onclick="event.stopPropagation(); agregarCartaPorIndice(${idx})" title="Agregar al mazo">+</button>
+                    <img src="${c.image}" alt="${c.name}" onclick="verDetalleCarta(${idx})">
+                    <p onclick="verDetalleCarta(${idx})">${c.name}</p>
+                </div>
+            `).join('');
+        }
+
+        function agregarCartaPorIndice(idx) {
+            const carta = UltimosResultados[idx];
+            if (!carta) return;
+            const r = REGLAS[mazoActual.game];
+
+            const copias = [...mazoActual.main, ...mazoActual.secondary].filter(x => x.id === carta.id).length;
+            const esTierraBasica = carta.game === 'magic' && carta.type_line.includes('Basic Land');
+            if (!esTierraBasica && copias >= r.maxCopias) {
+                alert(`Regla de ${r.nombre}: Máximo ${r.maxCopias} copias permitidas de "${carta.name}".`);
+                return;
+            }
+
+            if (carta.zone === 'secondary' && r.maxSec > 0) {
+                if (mazoActual.secondary.length >= r.maxSec) {
+                    alert(`El ${r.labelSec} ya alcanzó su límite de ${r.maxSec} cartas.`);
+                    return;
+                }
+                mazoActual.secondary.push(carta);
+            } else {
+                if (mazoActual.main.length >= r.maxMain) {
+                    alert(`El ${r.labelMain} ya alcanzó su límite de ${r.maxMain} cartas.`);
+                    return;
+                }
+                mazoActual.main.push(carta);
+            }
+            renderizarMazo();
+        }
+
+        function quitarCarta(zona, index) {
+            if (zona === 'main') mazoActual.main.splice(index, 1);
+            else mazoActual.secondary.splice(index, 1);
+            renderizarMazo();
+        }
+
+        function vaciarMazoActual() {
+            mazoActual.main = [];
+            mazoActual.secondary = [];
+            renderizarMazo();
+        }
+
+        function renderizarMazo() {
+            const r = REGLAS[mazoActual.game];
+            document.getElementById('contador-main').innerText = `${mazoActual.main.length} / ${r.maxMain}`;
+            document.getElementById('contador-sec').innerText = `${mazoActual.secondary.length} / ${r.maxSec}`;
+
+            document.getElementById('grilla-main-deck').innerHTML = mazoActual.main.map((c, i) => `
+                <div class="carta-item" onclick="quitarCarta('main', ${i})" title="Clic para quitar ${c.name}">
+                    <img src="${c.image}" alt="${c.name}">
+                </div>
+            `).join('');
+
+            document.getElementById('grilla-sec-deck').innerHTML = mazoActual.secondary.map((c, i) => `
+                <div class="carta-item" onclick="quitarCarta('sec', ${i})" title="Clic para quitar ${c.name}">
+                    <img src="${c.image}" alt="${c.name}">
+                </div>
+            `).join('');
+
+            actualizarHeaderMazo();
+        }
+
+        function verDetalleCarta(idx) {
+            const c = UltimosResultados[idx];
+            if (!c) return;
+            document.getElementById('modal-body').innerHTML = `
+                <img src="${c.image}" alt="${c.name}">
+                <div class="modal-info">
+                    <h3 style="margin:0 0 6px 0;">${c.name}</h3>
+                    <div style="color:var(--gris); font-size:13px; margin-bottom:10px;">
+                        ${c.type_line} | Nivel/Costo: <b>${c.cost}</b> | ATK/Poder: <b>${c.power}</b>
+                    </div>
+                    <div class="modal-desc">${c.desc || 'Sin texto de efecto.'}</div>
+                    <div style="margin-top:14px; display:flex; gap:10px;">
+                        <button class="btn-primario" onclick="agregarCartaPorIndice(${idx}); cerrarModal();">+ Agregar al Mazo</button>
+                        <button onclick="cerrarModal()">Cerrar</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-carta').classList.add('activo');
+        }
+
+        function cerrarModal() {
+            document.getElementById('modal-carta').classList.remove('activo');
+        }
+
+        // --- CÁLCULO DE MÉTRICAS Y SIMULADOR ---
+        function calcularMetricas() {
+            const r = REGLAS[mazoActual.game];
+            const totalMain = mazoActual.main.length;
+            const totalSec = mazoActual.secondary.length;
+
+            document.getElementById('kpi-total-main').innerText = totalMain;
+            document.getElementById('kpi-total-sec').innerText = totalSec;
+
+            const estadoLegal = document.getElementById('kpi-estado-legal');
+            if (totalMain >= r.minMain && totalMain <= r.maxMain) {
+                estadoLegal.innerText = "✅ Mazo Legal en cantidad";
+                estadoLegal.style.color = "#4ade80";
+            } else {
+                estadoLegal.innerText = `⚠️ Requiere entre ${r.minMain} y ${r.maxMain} cartas`;
+                estadoLegal.style.color = "#facc15";
+            }
+
+            const idsUnicos = new Set(mazoActual.main.map(c => c.id));
+            document.getElementById('kpi-unicas').innerText = idsUnicos.size;
+
+            const sumaCostos = mazoActual.main.reduce((acc, c) => acc + (Number(c.cost) || 0), 0);
+            const promedio = totalMain ? (sumaCostos / totalMain).toFixed(1) : "0.0";
+            document.getElementById('kpi-promedio-costo').innerText = promedio;
+
+            // 1. Gráfico de Curva de Costo/Nivel
+            const conteoCostos = {};
+            mazoActual.main.forEach(c => {
+                const k = Number(c.cost) || 0;
+                conteoCostos[k] = (conteoCostos[k] || 0) + 1;
+            });
+            const clavesCosto = Object.keys(conteoCostos).sort((a, b) => Number(a) - Number(b));
+            const maxValCosto = Math.max(...Object.values(conteoCostos), 1);
+
+            document.getElementById('grafico-curva').innerHTML = clavesCosto.length ? clavesCosto.map(k => {
+                const cant = conteoCostos[k];
+                const porc = Math.round((cant / maxValCosto) * 100);
+                return `
+                    <div class="barra-fila">
+                        <div class="barra-label">Nivel/Costo ${k}</div>
+                        <div class="barra-fondo"><div class="barra-relleno" style="width:${porc}%"></div></div>
+                        <div style="width:45px;"><b>${cant}</b></div>
+                    </div>
+                `;
+            }).join('') : '<p style="color:var(--gris);">Agregá cartas al mazo para ver la curva.</p>';
+
+            // 2. Gráfico por Categoría (Monstruo/Magia/Trampa, Criatura/Tierra, etc.)
+            const conteoTipos = {};
+            mazoActual.main.forEach(c => {
+                const cat = c.category || "Otro";
+                conteoTipos[cat] = (conteoTipos[cat] || 0) + 1;
+            });
+
+            document.getElementById('grafico-tipos').innerHTML = Object.keys(conteoTipos).length ? Object.entries(conteoTipos).map(([cat, cant]) => {
+                const porcReal = Math.round((cant / totalMain) * 100);
+                return `
+                    <div class="barra-fila">
+                        <div class="barra-label">${cat}</div>
+                        <div class="barra-fondo"><div class="barra-relleno azul" style="width:${porcReal}%"></div></div>
+                        <div style="width:75px;"><b>${cant}</b> (${porcReal}%)</div>
+                    </div>
+                `;
+            }).join('') : '<p style="color:var(--gris);">Agregá cartas al mazo para ver la distribución.</p>';
+
+            simularMano();
+        }
+
+        function simularMano() {
+            const cont = document.getElementById('grilla-mano-prueba');
+            if (mazoActual.main.length < 5) {
+                cont.innerHTML = `<p style="color:var(--gris); grid-column: 1 / -1;">Necesitás al menos 5 cartas en el Mazo Principal para simular una mano inicial.</p>`;
+                return;
+            }
+            const copia = [...mazoActual.main];
+            for (let i = copia.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [copia[i], copia[j]] = [copia[j], copia[i]];
+            }
+            const mano = copia.slice(0, 5);
+            cont.innerHTML = mano.map(c => `
+                <div class="carta-item">
+                    <img src="${c.image}" alt="${c.name}">
+                    <p>${c.name}</p>
+                </div>
+            `).join('');
+        }
+
+        // Inicializar al abrir
+        cargarMazosServidor();
+        sincronizarReglas();
+    </script>
+</body>
+</html>
