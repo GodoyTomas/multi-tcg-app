@@ -5,20 +5,25 @@ import requests
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"), encoding="utf-8-sig", override=True)
+RUTA_ENV = os.path.join(BASE_DIR, ".env")
+load_dotenv(RUTA_ENV, encoding="utf-8-sig", override=True)
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates"),
+    static_folder=os.path.join(BASE_DIR, "static")
+)
 
-CACHE_DIR = os.path.join("static", "cache")
-DECKS_FILE = "decks.json"
+CACHE_DIR = os.path.join(BASE_DIR, "static", "cache")
+DECKS_FILE = os.path.join(BASE_DIR, "decks.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 HEADERS = {"User-Agent": "MultiTCGApp/2.5"}
 
 MEMORIA_FFTCG = []
 MEMORIA_FAB = []
+MODELOS_GROQ_CACHE = []
 
 REGLAS_JUEZ_POR_JUEGO = {
     "yugioh": (
@@ -55,6 +60,21 @@ REGLAS_JUEZ_POR_JUEGO = {
     )
 }
 
+
+def a_entero(valor):
+    try:
+        return int(valor)
+    except (ValueError, TypeError):
+        return 0
+
+
+def a_flotante(valor):
+    try:
+        return float(valor)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def cargar_mazos():
     if not os.path.exists(DECKS_FILE):
         return []
@@ -64,9 +84,11 @@ def cargar_mazos():
     except Exception:
         return []
 
+
 def guardar_mazos_disco(mazos):
     with open(DECKS_FILE, "w", encoding="utf-8") as f:
         json.dump(mazos, f, ensure_ascii=False, indent=2)
+
 
 def guardar_imagen_cache(card_id, url_remota):
     if not url_remota:
@@ -88,23 +110,65 @@ def guardar_imagen_cache(card_id, url_remota):
 
     return f"/static/cache/{nombre_archivo}"
 
+
+def formatear_carta_yugioh(c):
+    raw_id = str(c["id"])
+    tipo = c.get("type", "")
+    es_extra = any(x in tipo for x in ["Fusion", "Synchro", "XYZ", "Link"])
+    if "Monster" in tipo:
+        cat = "Monstruo"
+    elif "Spell" in tipo:
+        cat = "Magia"
+    elif "Trap" in tipo:
+        cat = "Trampa"
+    else:
+        cat = "Otro"
+
+    nivel = c.get("level") or c.get("rank") or c.get("linkval") or 0
+    precios = c.get("card_prices", [{}])[0]
+    precio_usd = a_flotante(precios.get("tcgplayer_price") or precios.get("cardmarket_price") or 0.0)
+    ban_info = c.get("banlist_info", {}).get("ban_tcg", "Unlimited")
+
+    id_unico = f"YGO_{raw_id}"
+    imagenes = c.get("card_images", [{}])
+    img = imagenes[0].get("image_url_small") or imagenes[0].get("image_url", "")
+
+    return {
+        "id": id_unico,
+        "raw_id": raw_id,
+        "name": c.get("name", ""),
+        "game": "yugioh",
+        "zone": "secondary" if es_extra else "main",
+        "category": cat,
+        "cost": a_entero(nivel),
+        "power": a_entero(c.get("atk")),
+        "price": precio_usd,
+        "ban_status": ban_info,
+        "type_line": f"{tipo} / {c.get('race', '')} ({c.get('attribute', 'SPELL/TRAP')})",
+        "desc": c.get("desc", ""),
+        "image": guardar_imagen_cache(id_unico, img)
+    }
+
+
 @app.route("/")
 def inicio():
     return render_template("index.html")
+
 
 @app.route("/api/decks", methods=["GET"])
 def obtener_decks():
     return jsonify(cargar_mazos())
 
+
 @app.route("/api/decks", methods=["POST"])
 def guardar_deck():
-    datos = request.json
+    datos = request.json or {}
     mazos = cargar_mazos()
     deck_id = datos.get("id")
 
     if deck_id:
         for i, m in enumerate(mazos):
-            if m["id"] == deck_id:
+            if m.get("id") == deck_id:
                 mazos[i] = datos
                 break
         else:
@@ -116,18 +180,19 @@ def guardar_deck():
     guardar_mazos_disco(mazos)
     return jsonify(datos)
 
+
 @app.route("/api/decks/<deck_id>", methods=["DELETE"])
 def eliminar_deck(deck_id):
-    mazos = [m for m in cargar_mazos() if m["id"] != deck_id]
+    mazos = [m for m in cargar_mazos() if m.get("id") != deck_id]
     guardar_mazos_disco(mazos)
     return jsonify({"ok": True})
+
 
 # --- ENDPOINT DEL JUEZ DE DUELOS IA (GROQ + FALLBACK GEMINI) ---
 @app.route("/api/juez", methods=["POST"])
 def consultar_juez():
-    # Recarga el .env en cada consulta para evitar problemas de caché o BOM en Windows
-    ruta_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    load_dotenv(ruta_env, encoding="utf-8-sig", override=True)
+    global MODELOS_GROQ_CACHE
+    load_dotenv(RUTA_ENV, encoding="utf-8-sig", override=True)
 
     datos = request.json or {}
     juego = datos.get("juego", "yugioh")
@@ -152,7 +217,7 @@ def consultar_juez():
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     error_detalle = ""
 
-    # 1. INTENTO PRINCIPAL CON GROQ (Detección automática de modelos activos)
+    # 1. INTENTO PRINCIPAL CON GROQ
     if groq_key:
         try:
             headers_groq = {
@@ -160,31 +225,26 @@ def consultar_juez():
                 "Content-Type": "application/json"
             }
 
-            # Consultamos qué modelos están activos hoy en tu cuenta de Groq
-            modelos_candidatos = [
+            if not MODELOS_GROQ_CACHE:
+                try:
+                    r_mod = requests.get("https://api.groq.com/openai/v1/models", headers=headers_groq, timeout=8)
+                    if r_mod.status_code == 200:
+                        disponibles = [
+                            m["id"] for m in r_mod.json().get("data", [])
+                            if not any(x in m["id"].lower() for x in ["whisper", "guard", "tts", "vision", "audio"])
+                        ]
+                        preferidos = [m for m in disponibles if any(k in m.lower() for k in ["70b", "llama", "deepseek", "qwen"])]
+                        MODELOS_GROQ_CACHE = preferidos + [m for m in disponibles if m not in preferidos]
+                except Exception as e_mod:
+                    print(f"Aviso al listar modelos de Groq: {e_mod}")
+
+            modelos_candidatos = MODELOS_GROQ_CACHE or [
                 "llama-3.1-8b-instant",
                 "llama3-70b-8192",
                 "llama3-8b-8192",
-                "gemma2-9b-it",
-                "mixtral-8x7b-32768"
+                "gemma2-9b-it"
             ]
-            try:
-                r_mod = requests.get("https://api.groq.com/openai/v1/models", headers=headers_groq, timeout=8)
-                if r_mod.status_code == 200:
-                    disponibles = [
-                        m["id"] for m in r_mod.json().get("data", [])
-                        if "whisper" not in m["id"].lower()
-                        and "guard" not in m["id"].lower()
-                        and "tts" not in m["id"].lower()
-                        and "vision" not in m["id"].lower()
-                    ]
-                    # Ordenamos para priorizar modelos potentes (70b, llama, deepseek, qwen)
-                    preferidos = [m for m in disponibles if any(k in m.lower() for k in ["70b", "llama", "deepseek", "qwen"])]
-                    modelos_candidatos = preferidos + [m for m in disponibles if m not in preferidos]
-            except Exception as e_mod:
-                print(f"Aviso al listar modelos de Groq: {e_mod}")
 
-            # Probamos en orden hasta que el primer modelo activo responda 200
             for modelo_actual in modelos_candidatos[:4]:
                 r = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
@@ -209,7 +269,7 @@ def consultar_juez():
             error_detalle = str(e)
             print(f"Excepción en Groq: {e}")
 
-    # 2. RESPALDO AUTOMÁTICO CON GEMINI (si Groq no está configurado o agotó cuota por minuto)
+    # 2. RESPALDO AUTOMÁTICO CON GEMINI
     if gemini_key:
         try:
             url_gem = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
@@ -238,6 +298,7 @@ def consultar_juez():
         "motor": "Diagnóstico"
     })
 
+
 # --- ENDPOINT PARA IMPORTAR ARCHIVOS .YDK DE YU-GI-OH! ---
 @app.route("/api/importar_ydk", methods=["POST"])
 def importar_ydk():
@@ -260,17 +321,19 @@ def importar_ydk():
             seccion = "extra"
         elif linea.startswith("!side"):
             seccion = "side"
-        elif not linea.startswith("#") and linea.isdigit():
-            if seccion == "main":
-                main_ids.append(linea)
-            elif seccion == "extra":
-                extra_ids.append(linea)
+        elif not linea.startswith("#"):
+            # Algunos .ydk traen ceros a la izquierda; los normalizamos
+            limpio = linea.lstrip("0")
+            if limpio.isdigit():
+                if seccion == "main":
+                    main_ids.append(limpio)
+                elif seccion == "extra":
+                    extra_ids.append(limpio)
 
     todos_unicos = list(set(main_ids + extra_ids))
     if not todos_unicos:
         return jsonify({"main": [], "secondary": []})
 
-    # Consultamos todos los IDs de un solo golpe a YGOPRODeck
     ids_param = ",".join(todos_unicos)
     url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={ids_param}"
     mapa_cartas = {}
@@ -279,36 +342,12 @@ def importar_ydk():
         r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code == 200:
             for c in r.json().get("data", []):
-                raw_id = str(c["id"])
-                tipo = c.get("type", "")
-                es_extra = any(x in tipo for x in ["Fusion", "Synchro", "XYZ", "Link"])
-                if "Monster" in tipo: cat = "Monstruo"
-                elif "Spell" in tipo: cat = "Magia"
-                elif "Trap" in tipo: cat = "Trampa"
-                else: cat = "Otro"
-
-                nivel = c.get("level") or c.get("rank") or c.get("linkval") or 0
-                precios = c.get("card_prices", [{}])[0]
-                precio_usd = float(precios.get("tcgplayer_price") or precios.get("cardmarket_price") or 0.0)
-                ban_info = c.get("banlist_info", {}).get("ban_tcg", "Unlimited")
-                id_unico = f"YGO_{raw_id}"
-                img = c["card_images"][0]["image_url_small"]
-
-                mapa_cartas[raw_id] = {
-                    "id": id_unico,
-                    "raw_id": raw_id,
-                    "name": c["name"],
-                    "game": "yugioh",
-                    "zone": "secondary" if es_extra else "main",
-                    "category": cat,
-                    "cost": int(nivel),
-                    "power": int(c.get("atk") or 0),
-                    "price": precio_usd,
-                    "ban_status": ban_info,
-                    "type_line": f"{tipo} / {c.get('race', '')} ({c.get('attribute', 'SPELL/TRAP')})",
-                    "desc": c.get("desc", ""),
-                    "image": guardar_imagen_cache(id_unico, img)
-                }
+                carta_obj = formatear_carta_yugioh(c)
+                mapa_cartas[str(c["id"])] = carta_obj
+                # Mapear también IDs de artes alternativos (card_images)
+                for img_item in c.get("card_images", []):
+                    if "id" in img_item:
+                        mapa_cartas[str(img_item["id"])] = carta_obj
     except Exception as e:
         print(f"Error importando YDK: {e}")
 
@@ -317,6 +356,8 @@ def importar_ydk():
 
     return jsonify({"main": main_armado, "secondary": extra_armado})
 
+
+# --- ENDPOINT DE BÚSQUEDA MULTI-TCG ---
 @app.route("/api/buscar")
 def buscar():
     juego = request.args.get("juego", "yugioh")
@@ -328,42 +369,15 @@ def buscar():
     cartas = []
 
     try:
+        # 1. YU-GI-OH!
         if juego == "yugioh":
             url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?fname={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
             if r.status_code == 200:
                 for c in r.json().get("data", [])[:40]:
-                    tipo = c.get("type", "")
-                    es_extra = any(x in tipo for x in ["Fusion", "Synchro", "XYZ", "Link"])
-                    if "Monster" in tipo: cat = "Monstruo"
-                    elif "Spell" in tipo: cat = "Magia"
-                    elif "Trap" in tipo: cat = "Trampa"
-                    else: cat = "Otro"
+                    cartas.append(formatear_carta_yugioh(c))
 
-                    nivel = c.get("level") or c.get("rank") or c.get("linkval") or 0
-                    precios = c.get("card_prices", [{}])[0]
-                    precio_usd = float(precios.get("tcgplayer_price") or precios.get("cardmarket_price") or 0.0)
-                    ban_info = c.get("banlist_info", {}).get("ban_tcg", "Unlimited")
-
-                    id_unico = f"YGO_{c['id']}"
-                    img = c["card_images"][0]["image_url_small"]
-
-                    cartas.append({
-                        "id": id_unico,
-                        "raw_id": str(c["id"]),
-                        "name": c["name"],
-                        "game": "yugioh",
-                        "zone": "secondary" if es_extra else "main",
-                        "category": cat,
-                        "cost": int(nivel),
-                        "power": int(c.get("atk") or 0),
-                        "price": precio_usd,
-                        "ban_status": ban_info,
-                        "type_line": f"{tipo} / {c.get('race', '')} ({c.get('attribute', 'SPELL/TRAP')})",
-                        "desc": c.get("desc", ""),
-                        "image": guardar_imagen_cache(id_unico, img)
-                    })
-
+        # 2. DIGIMON TCG
         elif juego == "digimon":
             url = f"https://digimoncard.io/api-public/search.php?n={nombre}&series=Digimon Card Game"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -382,8 +396,8 @@ def buscar():
                         "game": "digimon",
                         "zone": "secondary" if es_egg else "main",
                         "category": tipo,
-                        "cost": int(c.get("level") or c.get("play_cost") or 0),
-                        "power": int(c.get("dp") or 0),
+                        "cost": a_entero(c.get("level") or c.get("play_cost")),
+                        "power": a_entero(c.get("dp")),
                         "price": 0.0,
                         "ban_status": "Unlimited",
                         "type_line": f"{tipo} / {c.get('color', '')} (Lv.{c.get('level', '-')})",
@@ -391,6 +405,7 @@ def buscar():
                         "image": guardar_imagen_cache(id_unico, img)
                     })
 
+        # 3. MAGIC: THE GATHERING
         elif juego == "magic":
             url = f"https://api.scryfall.com/cards/search?q={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -403,42 +418,43 @@ def buscar():
                         continue
 
                     t_line = c.get("type_line", "")
-                    if "Creature" in t_line: cat = "Criatura"
-                    elif "Land" in t_line: cat = "Tierra"
-                    elif "Instant" in t_line or "Sorcery" in t_line: cat = "Hechizo"
-                    else: cat = "Otro"
+                    if "Creature" in t_line:
+                        cat = "Criatura"
+                    elif "Land" in t_line:
+                        cat = "Tierra"
+                    elif "Instant" in t_line or "Sorcery" in t_line:
+                        cat = "Hechizo"
+                    else:
+                        cat = "Otro"
 
                     precio_raw = c.get("prices", {}).get("usd") or c.get("prices", {}).get("usd_foil") or 0.0
-                    poder_raw = c.get("power", "0")
-                    poder_num = int(poder_raw) if str(poder_raw).isdigit() else 0
-
                     id_unico = f"MTG_{c['id']}"
+
                     cartas.append({
                         "id": id_unico,
                         "raw_id": str(c.get("collector_number", "")),
-                        "name": c["name"],
+                        "name": c.get("name", ""),
                         "game": "magic",
                         "zone": "main",
                         "category": cat,
-                        "cost": int(c.get("cmc", 0)),
-                        "power": poder_num,
-                        "price": float(precio_raw),
+                        "cost": a_entero(c.get("cmc")),
+                        "power": a_entero(c.get("power")),
+                        "price": a_flotante(precio_raw),
                         "ban_status": "Unlimited",
                         "type_line": t_line,
                         "desc": c.get("oracle_text", ""),
                         "image": guardar_imagen_cache(id_unico, img)
                     })
 
+        # 4. CARDFIGHT!! VANGUARD
         elif juego == "vanguard":
             url = f"https://card-fight-vanguard-api.ue.r.appspot.com/api/v1/cards?name={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
             if r.status_code == 200:
                 for c in r.json().get("data", [])[:40]:
                     id_unico = f"CFV_{c.get('id')}"
-                    grado = c.get("grade", 0)
-                    grado_num = int(grado) if str(grado).isdigit() else 0
-                    poder = c.get("power", 0)
-                    poder_num = int(poder) if str(poder).isdigit() else 0
+                    grado_num = a_entero(c.get("grade"))
+                    poder_num = a_entero(c.get("power"))
                     cartas.append({
                         "id": id_unico,
                         "raw_id": str(c.get("id", "")),
@@ -455,6 +471,7 @@ def buscar():
                         "image": guardar_imagen_cache(id_unico, c.get("imageurl", ""))
                     })
 
+        # 5. FINAL FANTASY TCG
         elif juego == "fftcg":
             global MEMORIA_FFTCG
             if not MEMORIA_FFTCG:
@@ -474,8 +491,8 @@ def buscar():
                     "game": "fftcg",
                     "zone": "main",
                     "category": c.get("type", "Forward"),
-                    "cost": int(c.get("cost") or 0),
-                    "power": int(c.get("power") or 0),
+                    "cost": a_entero(c.get("cost")),
+                    "power": a_entero(c.get("power")),
                     "price": 0.0,
                     "ban_status": "Unlimited",
                     "type_line": f"{c.get('type', '')} / {', '.join(c.get('elements', []))}",
@@ -483,6 +500,7 @@ def buscar():
                     "image": guardar_imagen_cache(id_unico, c.get("image", ""))
                 })
 
+        # 6. FLESH AND BLOOD
         elif juego == "fab":
             global MEMORIA_FAB
             if not MEMORIA_FAB:
@@ -503,8 +521,6 @@ def buscar():
                     tipos = c.get("types", [])
                     es_sec = any(t in tipos for t in ["Hero", "Weapon", "Equipment"])
                     pitch = c.get("pitch", "")
-                    costo = c.get("cost", 0)
-                    poder = c.get("power", 0)
                     cartas.append({
                         "id": id_unico,
                         "raw_id": str(codigo),
@@ -512,8 +528,8 @@ def buscar():
                         "game": "fab",
                         "zone": "secondary" if es_sec else "main",
                         "category": tipos[0] if tipos else "Action",
-                        "cost": int(costo) if str(costo).isdigit() else 0,
-                        "power": int(poder) if str(poder).isdigit() else 0,
+                        "cost": a_entero(c.get("cost")),
+                        "power": a_entero(c.get("power")),
                         "price": 0.0,
                         "ban_status": "Unlimited",
                         "type_line": ", ".join(tipos),
@@ -527,6 +543,7 @@ def buscar():
         print(f"Error en búsqueda de {juego}: {e}")
 
     return jsonify(cartas)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
