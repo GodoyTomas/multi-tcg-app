@@ -210,6 +210,8 @@
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
                         <button class="btn-secundario" onclick="guardarMazoActual()">💾 Guardar</button>
                         <button class="btn-verde" onclick="ordenarMazoActual()" title="Ordenar por categoría y nivel">⇅ Ordenar</button>
+                        <input type="file" id="input-file-ydk" accept=".ydk" style="display:none" onchange="importarArchivoYDK(event)">
+                        <button onclick="document.getElementById('input-file-ydk').click()" title="Cargar archivo .YDK de Yu-Gi-Oh!">📥 Importar .YDK</button>
                         <button onclick="exportarMazoTexto()" title="Copiar lista o descargar .YDK">📤 Exportar</button>
                         <button onclick="vaciarMazoActual()" title="Vaciar mazo">🗑️</button>
                     </div>
@@ -583,18 +585,23 @@
         function verDetalleCarta(c) {
             if (!c) return;
             const cJson = JSON.stringify(c).replace(/"/g, '&quot;');
+            const banBadge = (c.ban_status && c.ban_status !== 'Unlimited')
+                ? `<span style="background:#e63946; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:6px;">TCG: ${c.ban_status}</span>`
+                : '';
+
             document.getElementById('modal-body').innerHTML = `
                 <img src="${c.image}" alt="${c.name}">
                 <div class="modal-info">
-                    <h3 style="margin:0 0 6px 0;">${c.name}</h3>
+                    <h3 style="margin:0 0 6px 0;">${c.name} ${banBadge}</h3>
                     <div style="color:var(--gris); font-size:13px; margin-bottom:10px;">
                         ${c.type_line}<br>
                         Nivel/Costo: <b>${c.cost}</b> | ATK/Poder: <b>${c.power}</b>
                         ${c.price > 0 ? ` | Precio: <b style="color:#4ade80;">$${Number(c.price).toFixed(2)} USD</b>` : ''}
                     </div>
                     <div class="modal-desc">${c.desc || 'No effect text.'}</div>
-                    <div style="margin-top:14px; display:flex; gap:10px;">
+                    <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
                         <button class="btn-primario" onclick="agregarCartaObjeto(${cJson}); cerrarModal();">+ Agregar al Mazo</button>
+                        <button class="btn-secundario" onclick="consultarRulingDeCarta(${cJson})">⚖️ Consultar Ruling al Juez</button>
                         <button onclick="cerrarModal()">Cerrar</button>
                     </div>
                 </div>
@@ -758,7 +765,7 @@ function preguntaRapidaJuez(texto) {
             chat.scrollTop = chat.scrollHeight;
 
             // Extraer el texto en inglés de las cartas únicas del mazo actual + últimos resultados para darle contexto real al Juez
-            const cartasContexto = [...agruparCartas(mazoActual.main).map(g => g.carta), ...agruparCartas(mazoActual.secondary).map(g => g.carta)];
+            const cartasContexto = [...(cartaEnFocoJuez ? [cartaEnFocoJuez] : []), ...agruparCartas(mazoActual.main).map(g => g.carta), ...agruparCartas(mazoActual.secondary).map(g => g.carta)];
             const resumenCartas = cartasContexto.slice(0, 20).map(c => `- ${c.name} (${c.type_line}): ${c.desc}`).join('\n');
 
             try {
@@ -791,6 +798,47 @@ function preguntaRapidaJuez(texto) {
             btn.innerText = 'Consultar Juez';
             chat.scrollTop = chat.scrollHeight;
         }
+        let cartaEnFocoJuez = null;
+
+        function consultarRulingDeCarta(carta) {
+            cerrarModal();
+            cartaEnFocoJuez = carta;
+            cambiarVista('juez');
+            document.getElementById('juego-juez').value = carta.game || mazoActual.game;
+            const input = document.getElementById('input-pregunta-juez');
+            input.value = `Sobre la carta "${carta.name}": ¿cómo funciona su efecto exactamente y qué rulings o interacciones importantes debo tener en cuenta en duelo?`;
+            input.focus();
+        }
+
+        async function importarArchivoYDK(event) {
+            const archivo = event.target.files[0];
+            if (!archivo) return;
+            const texto = await archivo.text();
+
+            document.getElementById('juego-busqueda').value = 'yugioh';
+            mazoActual.game = 'yugioh';
+            mazoActual.name = archivo.name.replace('.ydk', '');
+            document.getElementById('nombre-mazo-actual').value = mazoActual.name;
+            sincronizarReglas();
+
+            const estado = document.getElementById('estado-busqueda');
+            estado.innerText = 'Importando archivo .YDK y descargando imágenes del mazo...';
+
+            const res = await fetch('/api/importar_ydk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contenido: texto })
+            });
+            const data = await res.json();
+            if (data.main || data.secondary) {
+                mazoActual.main = data.main || [];
+                mazoActual.secondary = data.secondary || [];
+                renderizarMazo();
+                estado.innerText = `¡Mazo "${mazoActual.name}" importado con éxito (${mazoActual.main.length} Main / ${mazoActual.secondary.length} Extra)!`;
+            }
+            event.target.value = '';
+        }
+
 
     </script>
 </body>

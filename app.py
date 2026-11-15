@@ -5,7 +5,9 @@ import requests
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
-load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"), encoding="utf-8-sig", override=True)
 
 app = Flask(__name__)
 
@@ -123,6 +125,10 @@ def eliminar_deck(deck_id):
 # --- ENDPOINT DEL JUEZ DE DUELOS IA (GROQ + FALLBACK GEMINI) ---
 @app.route("/api/juez", methods=["POST"])
 def consultar_juez():
+    # Recarga el .env en cada consulta para evitar problemas de caché o BOM en Windows
+    ruta_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(ruta_env, encoding="utf-8-sig", override=True)
+
     datos = request.json or {}
     juego = datos.get("juego", "yugioh")
     pregunta = datos.get("pregunta", "").strip()
@@ -144,32 +150,64 @@ def consultar_juez():
 
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    error_detalle = ""
 
-    # 1. INTENTO PRINCIPAL CON GROQ (Llama 3.3 70B - Ultra rápido y alta cuota gratuita)
+    # 1. INTENTO PRINCIPAL CON GROQ (Detección automática de modelos activos)
     if groq_key:
         try:
-            r = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": pregunta}
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 900
-                },
-                timeout=15
-            )
-            if r.status_code == 200:
-                texto = r.json()["choices"][0]["message"]["content"]
-                return jsonify({"respuesta": texto, "motor": "Groq (Llama 3.3 70B)"})
+            headers_groq = {
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json"
+            }
+
+            # Consultamos qué modelos están activos hoy en tu cuenta de Groq
+            modelos_candidatos = [
+                "llama-3.1-8b-instant",
+                "llama3-70b-8192",
+                "llama3-8b-8192",
+                "gemma2-9b-it",
+                "mixtral-8x7b-32768"
+            ]
+            try:
+                r_mod = requests.get("https://api.groq.com/openai/v1/models", headers=headers_groq, timeout=8)
+                if r_mod.status_code == 200:
+                    disponibles = [
+                        m["id"] for m in r_mod.json().get("data", [])
+                        if "whisper" not in m["id"].lower()
+                        and "guard" not in m["id"].lower()
+                        and "tts" not in m["id"].lower()
+                        and "vision" not in m["id"].lower()
+                    ]
+                    # Ordenamos para priorizar modelos potentes (70b, llama, deepseek, qwen)
+                    preferidos = [m for m in disponibles if any(k in m.lower() for k in ["70b", "llama", "deepseek", "qwen"])]
+                    modelos_candidatos = preferidos + [m for m in disponibles if m not in preferidos]
+            except Exception as e_mod:
+                print(f"Aviso al listar modelos de Groq: {e_mod}")
+
+            # Probamos en orden hasta que el primer modelo activo responda 200
+            for modelo_actual in modelos_candidatos[:4]:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers_groq,
+                    json={
+                        "model": modelo_actual,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": pregunta}
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 900
+                    },
+                    timeout=15
+                )
+                if r.status_code == 200:
+                    texto = r.json()["choices"][0]["message"]["content"]
+                    return jsonify({"respuesta": texto, "motor": f"Groq ({modelo_actual})"})
+                else:
+                    error_detalle = f"Modelo {modelo_actual} devolvió {r.status_code}: {r.text}"
         except Exception as e:
-            print(f"Aviso: Falló Groq, intentando respaldo: {e}")
+            error_detalle = str(e)
+            print(f"Excepción en Groq: {e}")
 
     # 2. RESPALDO AUTOMÁTICO CON GEMINI (si Groq no está configurado o agotó cuota por minuto)
     if gemini_key:
@@ -193,15 +231,91 @@ def consultar_juez():
 
     return jsonify({
         "respuesta": (
-            "⚠️ **Falta configurar tu API Key gratuita.**\n\n"
-            "Abrí el archivo `.env` en tu carpeta `multi-tcg-app` y agregá:\n"
-            "`GROQ_API_KEY=tu_clave_de_console.groq.com`\n"
-            "o bien:\n"
-            "`GEMINI_API_KEY=tu_clave_de_aistudio.google.com`\n\n"
-            "Luego reiniciá `python app.py`."
+            f"⚠️ **No se pudo conectar al Juez IA.**\n\n"
+            f"- ¿Leyó GROQ_API_KEY del .env?: **{'SÍ (' + groq_key[:8] + '...)' if groq_key else 'NO (está vacía)'}**\n"
+            f"- Detalle técnico: `{error_detalle or 'Clave no encontrada'}`"
         ),
-        "motor": "Sin configurar"
+        "motor": "Diagnóstico"
     })
+
+# --- ENDPOINT PARA IMPORTAR ARCHIVOS .YDK DE YU-GI-OH! ---
+@app.route("/api/importar_ydk", methods=["POST"])
+def importar_ydk():
+    datos = request.json or {}
+    contenido = datos.get("contenido", "")
+    if not contenido:
+        return jsonify({"error": "Archivo vacío"}), 400
+
+    main_ids = []
+    extra_ids = []
+    seccion = None
+
+    for linea in contenido.splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+        if linea.startswith("#main"):
+            seccion = "main"
+        elif linea.startswith("#extra"):
+            seccion = "extra"
+        elif linea.startswith("!side"):
+            seccion = "side"
+        elif not linea.startswith("#") and linea.isdigit():
+            if seccion == "main":
+                main_ids.append(linea)
+            elif seccion == "extra":
+                extra_ids.append(linea)
+
+    todos_unicos = list(set(main_ids + extra_ids))
+    if not todos_unicos:
+        return jsonify({"main": [], "secondary": []})
+
+    # Consultamos todos los IDs de un solo golpe a YGOPRODeck
+    ids_param = ",".join(todos_unicos)
+    url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={ids_param}"
+    mapa_cartas = {}
+
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        if r.status_code == 200:
+            for c in r.json().get("data", []):
+                raw_id = str(c["id"])
+                tipo = c.get("type", "")
+                es_extra = any(x in tipo for x in ["Fusion", "Synchro", "XYZ", "Link"])
+                if "Monster" in tipo: cat = "Monstruo"
+                elif "Spell" in tipo: cat = "Magia"
+                elif "Trap" in tipo: cat = "Trampa"
+                else: cat = "Otro"
+
+                nivel = c.get("level") or c.get("rank") or c.get("linkval") or 0
+                precios = c.get("card_prices", [{}])[0]
+                precio_usd = float(precios.get("tcgplayer_price") or precios.get("cardmarket_price") or 0.0)
+                ban_info = c.get("banlist_info", {}).get("ban_tcg", "Unlimited")
+                id_unico = f"YGO_{raw_id}"
+                img = c["card_images"][0]["image_url_small"]
+
+                mapa_cartas[raw_id] = {
+                    "id": id_unico,
+                    "raw_id": raw_id,
+                    "name": c["name"],
+                    "game": "yugioh",
+                    "zone": "secondary" if es_extra else "main",
+                    "category": cat,
+                    "cost": int(nivel),
+                    "power": int(c.get("atk") or 0),
+                    "price": precio_usd,
+                    "ban_status": ban_info,
+                    "type_line": f"{tipo} / {c.get('race', '')} ({c.get('attribute', 'SPELL/TRAP')})",
+                    "desc": c.get("desc", ""),
+                    "image": guardar_imagen_cache(id_unico, img)
+                }
+    except Exception as e:
+        print(f"Error importando YDK: {e}")
+
+    main_armado = [mapa_cartas[i] for i in main_ids if i in mapa_cartas]
+    extra_armado = [mapa_cartas[i] for i in extra_ids if i in mapa_cartas]
+
+    return jsonify({"main": main_armado, "secondary": extra_armado})
 
 @app.route("/api/buscar")
 def buscar():
