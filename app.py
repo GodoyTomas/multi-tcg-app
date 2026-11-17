@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import requests
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +19,7 @@ CACHE_DIR = os.path.join(BASE_DIR, "static", "cache")
 DECKS_FILE = os.path.join(BASE_DIR, "decks.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-HEADERS = {"User-Agent": "MultiTCGApp/2.5"}
+HEADERS = {"User-Agent": "MultiTCGApp/3.0"}
 
 MEMORIA_FFTCG = []
 MEMORIA_FAB = []
@@ -150,74 +150,14 @@ def formatear_carta_yugioh(c):
     }
 
 
-@app.route("/")
-def inicio():
-    return render_template("index.html")
-
-
-@app.route("/api/decks", methods=["GET"])
-def obtener_decks():
-    return jsonify(cargar_mazos())
-
-
-@app.route("/api/decks", methods=["POST"])
-def guardar_deck():
-    datos = request.json or {}
-    mazos = cargar_mazos()
-    deck_id = datos.get("id")
-
-    if deck_id:
-        for i, m in enumerate(mazos):
-            if m.get("id") == deck_id:
-                mazos[i] = datos
-                break
-        else:
-            mazos.append(datos)
-    else:
-        datos["id"] = str(uuid.uuid4())[:8]
-        mazos.append(datos)
-
-    guardar_mazos_disco(mazos)
-    return jsonify(datos)
-
-
-@app.route("/api/decks/<deck_id>", methods=["DELETE"])
-def eliminar_deck(deck_id):
-    mazos = [m for m in cargar_mazos() if m.get("id") != deck_id]
-    guardar_mazos_disco(mazos)
-    return jsonify({"ok": True})
-
-
-# --- ENDPOINT DEL JUEZ DE DUELOS IA (GROQ + FALLBACK GEMINI) ---
-@app.route("/api/juez", methods=["POST"])
-def consultar_juez():
+def llamar_motor_ia(system_prompt, user_prompt, max_tokens=1000):
     global MODELOS_GROQ_CACHE
     load_dotenv(RUTA_ENV, encoding="utf-8-sig", override=True)
-
-    datos = request.json or {}
-    juego = datos.get("juego", "yugioh")
-    pregunta = datos.get("pregunta", "").strip()
-    contexto_cartas = datos.get("contexto_cartas", "")
-
-    if not pregunta:
-        return jsonify({"respuesta": "Escribí tu duda de ruling o interacción para que pueda ayudarte."}), 400
-
-    regla_base = REGLAS_JUEZ_POR_JUEGO.get(juego, REGLAS_JUEZ_POR_JUEGO["yugioh"])
-    system_prompt = (
-        f"{regla_base}\n\n"
-        "INSTRUCCIONES DE FORMATO:\n"
-        "1. Respondé SIEMPRE en español claro, pero mantené los nombres de cartas y términos técnicos clave en inglés.\n"
-        "2. Empezá siempre con un '**Veredicto Rápido:**' (Sí se puede / No se puede / Cómo resuelve en 1 o 2 oraciones) para no demorar el duelo.\n"
-        "3. Luego agregá '**Explicación de Reglas (Ruling):**' explicando paso a paso por qué ocurre así según el texto de las cartas y las mecánicas del juego.\n"
-    )
-    if contexto_cartas:
-        system_prompt += f"\nTEXTO OFICIAL DE CARTAS EN EL MAZO/BÚSQUEDA ACTUAL DEL JUGADOR:\n{contexto_cartas}\n"
 
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     error_detalle = ""
 
-    # 1. INTENTO PRINCIPAL CON GROQ
     if groq_key:
         try:
             headers_groq = {
@@ -253,24 +193,22 @@ def consultar_juez():
                         "model": modelo_actual,
                         "messages": [
                             {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": pregunta}
+                            {"role": "user", "content": user_prompt}
                         ],
-                        "temperature": 0.2,
-                        "max_tokens": 900
+                        "temperature": 0.25,
+                        "max_tokens": max_tokens
                     },
-                    timeout=15
+                    timeout=18
                 )
                 if r.status_code == 200:
                     texto = r.json()["choices"][0]["message"]["content"]
-                    return jsonify({"respuesta": texto, "motor": f"Groq ({modelo_actual})"})
+                    return {"respuesta": texto, "motor": f"Groq ({modelo_actual})"}
                 else:
                     error_detalle = f"Modelo {modelo_actual} devolvió {r.status_code}: {r.text}"
         except Exception as e:
             error_detalle = str(e)
-            print(f"Excepción en Groq: {e}")
 
-    # 2. RESPALDO AUTOMÁTICO CON GEMINI
-    if gemini_key:
+    if gemini_key and gemini_key.startswith("AIza"):
         try:
             url_gem = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
             r = requests.post(
@@ -278,28 +216,136 @@ def consultar_juez():
                 headers={"Content-Type": "application/json"},
                 json={
                     "system_instruction": {"parts": [{"text": system_prompt}]},
-                    "contents": [{"parts": [{"text": pregunta}]}],
-                    "generationConfig": {"temperature": 0.2}
+                    "contents": [{"parts": [{"text": user_prompt}]}],
+                    "generationConfig": {"temperature": 0.25}
                 },
-                timeout=15
+                timeout=18
             )
             if r.status_code == 200:
                 texto = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-                return jsonify({"respuesta": texto, "motor": "Gemini 2.5 Flash"})
+                return {"respuesta": texto, "motor": "Gemini 2.5 Flash"}
         except Exception as e:
             print(f"Error en Gemini: {e}")
 
-    return jsonify({
+    return {
         "respuesta": (
-            f"⚠️ **No se pudo conectar al Juez IA.**\n\n"
-            f"- ¿Leyó GROQ_API_KEY del .env?: **{'SÍ (' + groq_key[:8] + '...)' if groq_key else 'NO (está vacía)'}**\n"
+            f"⚠️ **No se pudo conectar al motor IA.**\n\n"
+            f"- ¿Leyó GROQ_API_KEY del .env?: **{'SÍ (' + groq_key[:8] + '...)' if groq_key else 'NO'}**\n"
             f"- Detalle técnico: `{error_detalle or 'Clave no encontrada'}`"
         ),
         "motor": "Diagnóstico"
-    })
+    }
 
 
-# --- ENDPOINT PARA IMPORTAR ARCHIVOS .YDK DE YU-GI-OH! ---
+@app.route("/")
+def inicio():
+    return render_template("index.html")
+
+
+# --- MANIFEST PARA INSTALAR COMO APP EN CELULAR (PWA) ---
+@app.route("/manifest.json")
+def manifest():
+    datos_pwa = {
+        "name": "Multi-TCG Deck Studio & Judge",
+        "short_name": "Multi-TCG",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0f1115",
+        "theme_color": "#e63946",
+        "icons": [
+            {
+                "src": "https://cdn-icons-png.flaticon.com/512/3813/3813681.png",
+                "sizes": "512x512",
+                "type": "image/png"
+            }
+        ]
+    }
+    return Response(json.dumps(datos_pwa), mimetype="application/json")
+
+
+@app.route("/api/decks", methods=["GET"])
+def obtener_decks():
+    return jsonify(cargar_mazos())
+
+
+@app.route("/api/decks", methods=["POST"])
+def guardar_deck():
+    datos = request.json or {}
+    mazos = cargar_mazos()
+    deck_id = datos.get("id")
+
+    if deck_id:
+        for i, m in enumerate(mazos):
+            if m.get("id") == deck_id:
+                mazos[i] = datos
+                break
+        else:
+            mazos.append(datos)
+    else:
+        datos["id"] = str(uuid.uuid4())[:8]
+        mazos.append(datos)
+
+    guardar_mazos_disco(mazos)
+    return jsonify(datos)
+
+
+@app.route("/api/decks/<deck_id>", methods=["DELETE"])
+def eliminar_deck(deck_id):
+    mazos = [m for m in cargar_mazos() if m.get("id") != deck_id]
+    guardar_mazos_disco(mazos)
+    return jsonify({"ok": True})
+
+
+# --- ENDPOINT DEL JUEZ DE DUELOS IA ---
+@app.route("/api/juez", methods=["POST"])
+def consultar_juez():
+    datos = request.json or {}
+    juego = datos.get("juego", "yugioh")
+    pregunta = datos.get("pregunta", "").strip()
+    contexto_cartas = datos.get("contexto_cartas", "")
+
+    if not pregunta:
+        return jsonify({"respuesta": "Escribí tu duda de ruling o interacción para que pueda ayudarte."}), 400
+
+    regla_base = REGLAS_JUEZ_POR_JUEGO.get(juego, REGLAS_JUEZ_POR_JUEGO["yugioh"])
+    system_prompt = (
+        f"{regla_base}\n\n"
+        "INSTRUCCIONES DE FORMATO:\n"
+        "1. Respondé SIEMPRE en español claro, pero mantené los nombres de cartas y términos técnicos clave en inglés.\n"
+        "2. Empezá siempre con un '**Veredicto Rápido:**' (Sí se puede / No se puede / Cómo resuelve en 1 o 2 oraciones) para no demorar el duelo.\n"
+        "3. Luego agregá '**Explicación de Reglas (Ruling):**' explicando paso a paso por qué ocurre así según el texto de las cartas y las mecánicas del juego.\n"
+    )
+    if contexto_cartas:
+        system_prompt += f"\nTEXTO OFICIAL DE CARTAS EN EL MAZO/BÚSQUEDA ACTUAL DEL JUGADOR:\n{contexto_cartas}\n"
+
+    return jsonify(llamar_motor_ia(system_prompt, pregunta, max_tokens=900))
+
+
+# --- ENDPOINT DEL COACH IA DE MAZOS (DECK DOCTOR) ---
+@app.route("/api/analizar_mazo", methods=["POST"])
+def analizar_mazo():
+    datos = request.json or {}
+    juego = datos.get("juego", "yugioh")
+    nombre_mazo = datos.get("nombre", "Mi Mazo")
+    lista_mazo = datos.get("lista_mazo", "")
+
+    if not lista_mazo:
+        return jsonify({"respuesta": "Agregá cartas a tu mazo primero para que el Coach IA pueda analizarlo."}), 400
+
+    system_prompt = (
+        f"Sos un Coach Competitivo Top Tier de {juego.upper()}. "
+        "Analizá la lista de cartas del jugador y respondé en español manteniendo los nombres de cartas en inglés con esta estructura exacta:\n"
+        "1. **🎯 Plan de Juego y Condición de Victoria:** Cómo gana este mazo.\n"
+        "2. **⚡ Combos y Sinergias Clave:** Qué cartas buscar primero y cómo conectan entre sí.\n"
+        "3. **🛡️ Puntos Débiles y Choke Points:** Qué interrupciones del rival frenan a este mazo y cómo jugar alrededor de ellas.\n"
+        "4. **🔧 Recomendaciones de Optimización y Side Deck:** Qué ratios ajustar o qué cartas agregar para hacerlo más consistente."
+    )
+    user_prompt = f"Analizá este mazo llamado '{nombre_mazo}' ({juego}):\n\n{lista_mazo}"
+
+    return jsonify(llamar_motor_ia(system_prompt, user_prompt, max_tokens=1100))
+
+
+# --- ENDPOINT PARA IMPORTAR ARCHIVOS .YDK DE YU-GI-OH! (CON SIDE DECK) ---
 @app.route("/api/importar_ydk", methods=["POST"])
 def importar_ydk():
     datos = request.json or {}
@@ -309,6 +355,7 @@ def importar_ydk():
 
     main_ids = []
     extra_ids = []
+    side_ids = []
     seccion = None
 
     for linea in contenido.splitlines():
@@ -322,17 +369,18 @@ def importar_ydk():
         elif linea.startswith("!side"):
             seccion = "side"
         elif not linea.startswith("#"):
-            # Algunos .ydk traen ceros a la izquierda; los normalizamos
             limpio = linea.lstrip("0")
             if limpio.isdigit():
                 if seccion == "main":
                     main_ids.append(limpio)
                 elif seccion == "extra":
                     extra_ids.append(limpio)
+                elif seccion == "side":
+                    side_ids.append(limpio)
 
-    todos_unicos = list(set(main_ids + extra_ids))
+    todos_unicos = list(set(main_ids + extra_ids + side_ids))
     if not todos_unicos:
-        return jsonify({"main": [], "secondary": []})
+        return jsonify({"main": [], "secondary": [], "side": []})
 
     ids_param = ",".join(todos_unicos)
     url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={ids_param}"
@@ -344,7 +392,6 @@ def importar_ydk():
             for c in r.json().get("data", []):
                 carta_obj = formatear_carta_yugioh(c)
                 mapa_cartas[str(c["id"])] = carta_obj
-                # Mapear también IDs de artes alternativos (card_images)
                 for img_item in c.get("card_images", []):
                     if "id" in img_item:
                         mapa_cartas[str(img_item["id"])] = carta_obj
@@ -353,8 +400,9 @@ def importar_ydk():
 
     main_armado = [mapa_cartas[i] for i in main_ids if i in mapa_cartas]
     extra_armado = [mapa_cartas[i] for i in extra_ids if i in mapa_cartas]
+    side_armado = [mapa_cartas[i] for i in side_ids if i in mapa_cartas]
 
-    return jsonify({"main": main_armado, "secondary": extra_armado})
+    return jsonify({"main": main_armado, "secondary": extra_armado, "side": side_armado})
 
 
 # --- ENDPOINT DE BÚSQUEDA MULTI-TCG ---
@@ -369,7 +417,6 @@ def buscar():
     cartas = []
 
     try:
-        # 1. YU-GI-OH!
         if juego == "yugioh":
             url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?fname={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -377,7 +424,6 @@ def buscar():
                 for c in r.json().get("data", [])[:40]:
                     cartas.append(formatear_carta_yugioh(c))
 
-        # 2. DIGIMON TCG
         elif juego == "digimon":
             url = f"https://digimoncard.io/api-public/search.php?n={nombre}&series=Digimon Card Game"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -405,7 +451,6 @@ def buscar():
                         "image": guardar_imagen_cache(id_unico, img)
                     })
 
-        # 3. MAGIC: THE GATHERING
         elif juego == "magic":
             url = f"https://api.scryfall.com/cards/search?q={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -446,7 +491,6 @@ def buscar():
                         "image": guardar_imagen_cache(id_unico, img)
                     })
 
-        # 4. CARDFIGHT!! VANGUARD
         elif juego == "vanguard":
             url = f"https://card-fight-vanguard-api.ue.r.appspot.com/api/v1/cards?name={nombre}"
             r = requests.get(url, headers=HEADERS, timeout=10)
@@ -471,7 +515,6 @@ def buscar():
                         "image": guardar_imagen_cache(id_unico, c.get("imageurl", ""))
                     })
 
-        # 5. FINAL FANTASY TCG
         elif juego == "fftcg":
             global MEMORIA_FFTCG
             if not MEMORIA_FFTCG:
@@ -500,7 +543,6 @@ def buscar():
                     "image": guardar_imagen_cache(id_unico, c.get("image", ""))
                 })
 
-        # 6. FLESH AND BLOOD
         elif juego == "fab":
             global MEMORIA_FAB
             if not MEMORIA_FAB:
