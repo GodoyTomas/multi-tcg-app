@@ -1,6 +1,7 @@
-﻿venv/
+﻿@"
+venv/
 __pycache__/
 static/cache/
 *.pyc
-
 .env
+"@ | Set-Content -Path .gitignore -Encoding utf8
