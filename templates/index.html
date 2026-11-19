@@ -537,8 +537,9 @@
                             </p>
                         </div>
                         <div style="display:flex; gap:8px;">
-                            <button class="btn-primario" style="flex:1;" onclick="abrirMazo('${m.id}')">✏️ Abrir en Armador</button>
-                            <button onclick="borrarMazo('${m.id}')">🗑️</button>
+                            <button class="btn-primario" style="flex:1;" onclick="abrirMazo('${m.id}')">✏️ Abrir</button>
+                            <button class="btn-secundario" onclick="duplicarMazo('${m.id}')" title="Crear copia para probar cambios">📋 Clonar</button>
+                            <button onclick="borrarMazo('${m.id}')" title="Eliminar">🗑️</button>
                         </div>
                     </div>
                 `;
@@ -572,6 +573,20 @@
 
         async function borrarMazo(id) {
             await fetch(`/api/decks/${id}`, { method: 'DELETE' });
+            cargarMazosServidor();
+        }
+
+        async function duplicarMazo(id) {
+            const original = mazosGuardados.find(m => m.id === id);
+            if (!original) return;
+            const copia = JSON.parse(JSON.stringify(original));
+            copia.id = null;
+            copia.name = `${original.name} (Copia)`;
+            await fetch('/api/decks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(copia)
+            });
             cargarMazosServidor();
         }
 
