@@ -446,6 +446,17 @@
             </div>
         </div>
 
+        <!-- HISTORIAL DE LP Y DESHACER -->
+        <div class="panel-box" style="margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h3 style="margin:0;">📜 Historial de Vida (LP)</h3>
+                <button class="btn-secundario" onclick="deshacerLP()" style="font-size:12px;">↩️ Deshacer último cambio</button>
+            </div>
+            <div id="historial-lp" style="font-size:13px; color:var(--gris); max-height:90px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+                <div>Duelo iniciado (8000 vs 8000)</div>
+            </div>
+        </div>
+
         <!-- DIGIMON MEMORY GAUGE -->
         <div class="panel-box" style="margin-bottom:20px; text-align:center;">
             <h3 style="margin:0 0 6px 0;">⚡ Digimon TCG - Memory Gauge</h3>
@@ -1153,35 +1164,69 @@
         // --- MESA DE DUELO EN VIVO ---
         let lpJ1 = 8000;
         let lpJ2 = 8000;
+        let historialLP = [];
         let memoriaActual = 0;
         let segundosReloj = 45 * 60;
         let intervaloReloj = null;
 
+        function renderizarHistorialLP() {
+            const cont = document.getElementById('historial-lp');
+            if (!historialLP.length) {
+                cont.innerHTML = `<div>Duelo iniciado (${lpJ1} vs ${lpJ2})</div>`;
+                return;
+            }
+            cont.innerHTML = [...historialLP].reverse().map(h => `<div>• ${h.texto}</div>`).join('');
+        }
+
+        function guardarEstadoLP(texto) {
+            historialLP.push({ j1: lpJ1, j2: lpJ2, texto });
+            if (historialLP.length > 30) historialLP.shift();
+        }
+
+        function deshacerLP() {
+            if (!historialLP.length) return;
+            const anterior = historialLP.pop();
+            lpJ1 = anterior.j1;
+            lpJ2 = anterior.j2;
+            document.getElementById('lp-j1').innerText = lpJ1;
+            document.getElementById('lp-j2').innerText = lpJ2;
+            renderizarHistorialLP();
+        }
+
         function reiniciarVidas(valor) {
             lpJ1 = valor;
             lpJ2 = valor;
+            historialLP = [];
             document.getElementById('lp-j1').innerText = lpJ1;
             document.getElementById('lp-j2').innerText = lpJ2;
+            renderizarHistorialLP();
         }
 
         function modificarLP(jugador, delta) {
+            const signo = delta > 0 ? `+${delta}` : `${delta}`;
+            const nuevo = Math.max(0, (jugador === 1 ? lpJ1 : lpJ2) + delta);
+            guardarEstadoLP(`Jugador ${jugador}: ${signo} (quedó en ${nuevo})`);
             if (jugador === 1) {
-                lpJ1 = Math.max(0, lpJ1 + delta);
+                lpJ1 = nuevo;
                 document.getElementById('lp-j1').innerText = lpJ1;
             } else {
-                lpJ2 = Math.max(0, lpJ2 + delta);
+                lpJ2 = nuevo;
                 document.getElementById('lp-j2').innerText = lpJ2;
             }
+            renderizarHistorialLP();
         }
 
         function dividirLP(jugador) {
+            const nuevo = Math.ceil((jugador === 1 ? lpJ1 : lpJ2) / 2);
+            guardarEstadoLP(`Jugador ${jugador}: ÷ 2 (quedó en ${nuevo})`);
             if (jugador === 1) {
-                lpJ1 = Math.ceil(lpJ1 / 2);
+                lpJ1 = nuevo;
                 document.getElementById('lp-j1').innerText = lpJ1;
             } else {
-                lpJ2 = Math.ceil(lpJ2 / 2);
+                lpJ2 = nuevo;
                 document.getElementById('lp-j2').innerText = lpJ2;
             }
+            renderizarHistorialLP();
         }
 
         function renderizarMemoryGauge() {
