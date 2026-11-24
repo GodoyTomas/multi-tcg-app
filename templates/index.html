@@ -275,6 +275,7 @@
                 <button class="btn-violeta" id="btn-coach-ia" onclick="analizarMazoConIA()">🧠 Analizar y Optimizar Mazo con IA</button>
                 <button class="btn-secundario" onclick="simularMano(5)">🎲 Mano de 5</button>
                 <button class="btn-verde" onclick="simularMano(6)">🎲 Mano de 6 (Turno 2)</button>
+                <button onclick="robarCartaExtra()">🃏 +1 Robar</button>
             </div>
         </div>
 
@@ -1037,6 +1038,18 @@
             btn.innerText = '🧠 Analizar y Optimizar Mazo con IA';
         }
 
+        let mazoRestanteSimulacion = [];
+
+        function renderizarManoSimulada() {
+            const cont = document.getElementById('grilla-mano-prueba');
+            cont.innerHTML = ManoSimuladaActual.map((c, idx) => `
+                <div class="carta-item" onclick="verDetalleCarta(ManoSimuladaActual[${idx}])">
+                    <img src="${c.image}" alt="${c.name}">
+                    <p>${c.name}</p>
+                </div>
+            `).join('');
+        }
+
         function simularMano(cantidad = 5) {
             const cont = document.getElementById('grilla-mano-prueba');
             if (mazoActual.main.length < cantidad) {
@@ -1049,12 +1062,21 @@
                 [copia[i], copia[j]] = [copia[j], copia[i]];
             }
             ManoSimuladaActual = copia.slice(0, cantidad);
-            cont.innerHTML = ManoSimuladaActual.map((c, idx) => `
-                <div class="carta-item" onclick="verDetalleCarta(ManoSimuladaActual[${idx}])">
-                    <img src="${c.image}" alt="${c.name}">
-                    <p>${c.name}</p>
-                </div>
-            `).join('');
+            mazoRestanteSimulacion = copia.slice(cantidad);
+            renderizarManoSimulada();
+        }
+
+        function robarCartaExtra() {
+            if (!ManoSimuladaActual.length) {
+                simularMano(5);
+                return;
+            }
+            if (!mazoRestanteSimulacion.length) {
+                alert("¡Deck out! No quedan más cartas en el mazo.");
+                return;
+            }
+            ManoSimuladaActual.push(mazoRestanteSimulacion.shift());
+            renderizarManoSimulada();
         }
 
         // --- JUEZ IA DE DUELOS ---
