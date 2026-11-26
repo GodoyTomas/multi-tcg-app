@@ -1081,6 +1081,14 @@
         }
 
         // --- JUEZ IA DE DUELOS ---
+        function limpiarChatJuez() {
+            cartaEnFocoJuez = null;
+            document.getElementById('chat-juez-historial').innerHTML = `
+                <div style="background:var(--panel); padding:12px; border-radius:8px; border-left:4px solid var(--acento-sec);">
+                    <b>⚖️ Juez IA:</b> Chat reiniciado. Contame qué cartas están en juego o qué cadena se armó.
+                </div>
+            `;
+        }
         function preguntaRapidaJuez(texto) {
             document.getElementById('input-pregunta-juez').value = texto;
             document.getElementById('input-pregunta-juez').focus();
