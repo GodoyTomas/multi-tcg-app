@@ -19,7 +19,10 @@ CACHE_DIR = os.path.join(BASE_DIR, "static", "cache")
 DECKS_FILE = os.path.join(BASE_DIR, "decks.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-HEADERS = {"User-Agent": "MultiTCGApp/3.0"}
+HEADERS = {
+    "User-Agent": "MultiTCGApp/3.0 (compatible; Python requests)",
+    "Accept": "application/json"
+}
 
 MEMORIA_FFTCG = []
 MEMORIA_FAB = []
@@ -406,6 +409,25 @@ def importar_ydk():
 
 
 # --- ENDPOINT DE BÚSQUEDA MULTI-TCG ---
+def cargar_dataset_local(nombre_archivo, url_remota, timeout=25):
+    """Descarga una base JSON grande una sola vez y la guarda en caché local."""
+    ruta = os.path.join(CACHE_DIR, nombre_archivo)
+    if os.path.exists(ruta):
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    r = requests.get(url_remota, headers=HEADERS, timeout=timeout)
+    if r.status_code == 200:
+        datos = r.json()
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(datos, f)
+        return datos
+    return []
+
+
+# --- ENDPOINT DE BÚSQUEDA MULTI-TCG (RÁPIDO Y PARALELO) ---
 @app.route("/api/buscar")
 def buscar():
     juego = request.args.get("juego", "yugioh")
@@ -417,45 +439,84 @@ def buscar():
     cartas = []
 
     try:
+        # 1. YU-GI-OH!
         if juego == "yugioh":
-            url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?fname={nombre}"
-            r = requests.get(url, headers=HEADERS, timeout=10)
+            r = requests.get(
+                "https://db.ygoprodeck.com/api/v7/cardinfo.php",
+                params={"fname": nombre},
+                headers=HEADERS,
+                timeout=10
+            )
             if r.status_code == 200:
-                for c in r.json().get("data", [])[:40]:
-                    cartas.append(formatear_carta_yugioh(c))
-
-        elif juego == "digimon":
-            url = f"https://digimoncard.io/api-public/search.php?n={nombre}&series=Digimon Card Game"
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            if r.status_code == 200 and isinstance(r.json(), list):
-                for idx, c in enumerate(r.json()[:40]):
-                    codigo = c.get("cardnumber") or c.get("id") or f"unk_{idx}"
-                    id_unico = f"DGM_{codigo}"
-                    img = c.get("image_url") or f"https://images.digimoncard.io/images/cards/{codigo}.jpg"
-                    tipo = c.get("type", "Digimon")
-                    es_egg = (tipo == "Digi-Egg")
+                for c in r.json().get("data", [])[:30]:
+                    raw_id = str(c["id"])
+                    tipo = c.get("type", "")
+                    es_extra = any(x in tipo for x in ["Fusion", "Synchro", "XYZ", "Link"])
+                    cat = "Monstruo" if "Monster" in tipo else "Magia" if "Spell" in tipo else "Trampa" if "Trap" in tipo else "Otro"
+                    nivel = c.get("level") or c.get("rank") or c.get("linkval") or 0
+                    precios = c.get("card_prices", [{}])[0]
+                    precio_usd = a_flotante(precios.get("tcgplayer_price") or precios.get("cardmarket_price") or 0.0)
+                    ban_info = c.get("banlist_info", {}).get("ban_tcg", "Unlimited")
+                    imagenes = c.get("card_images", [{}])
+                    img = imagenes[0].get("image_url_small") or imagenes[0].get("image_url", "")
 
                     cartas.append({
-                        "id": id_unico,
-                        "raw_id": str(codigo),
-                        "name": c.get("name", "Digimon"),
-                        "game": "digimon",
-                        "zone": "secondary" if es_egg else "main",
-                        "category": tipo,
-                        "cost": a_entero(c.get("level") or c.get("play_cost")),
-                        "power": a_entero(c.get("dp")),
-                        "price": 0.0,
-                        "ban_status": "Unlimited",
-                        "type_line": f"{tipo} / {c.get('color', '')} (Lv.{c.get('level', '-')})",
-                        "desc": c.get("maineffect") or c.get("soureeffect") or "No effect",
-                        "image": guardar_imagen_cache(id_unico, img)
+                        "id": f"YGO_{raw_id}",
+                        "raw_id": raw_id,
+                        "name": c.get("name", ""),
+                        "game": "yugioh",
+                        "zone": "secondary" if es_extra else "main",
+                        "category": cat,
+                        "cost": a_entero(nivel),
+                        "power": a_entero(c.get("atk")),
+                        "price": precio_usd,
+                        "ban_status": ban_info,
+                        "type_line": f"{tipo} / {c.get('race', '')} ({c.get('attribute', 'SPELL/TRAP')})",
+                        "desc": c.get("desc", ""),
+                        "image": img
                     })
 
-        elif juego == "magic":
-            url = f"https://api.scryfall.com/cards/search?q={nombre}"
-            r = requests.get(url, headers=HEADERS, timeout=10)
+        # 2. DIGIMON TCG
+        elif juego == "digimon":
+            r = requests.get(
+                "https://digimoncard.io/api-public/search.php",
+                params={"n": nombre, "series": "Digimon Card Game"},
+                headers=HEADERS,
+                timeout=12
+            )
             if r.status_code == 200:
-                for c in r.json().get("data", [])[:40]:
+                data = r.json()
+                if isinstance(data, list):
+                    for idx, c in enumerate(data[:30]):
+                        codigo = c.get("cardnumber") or c.get("id") or f"unk_{idx}"
+                        img = c.get("image_url") or f"https://images.digimoncard.io/images/cards/{codigo}.jpg"
+                        tipo = c.get("type", "Digimon")
+                        cartas.append({
+                            "id": f"DGM_{codigo}",
+                            "raw_id": str(codigo),
+                            "name": c.get("name", "Digimon"),
+                            "game": "digimon",
+                            "zone": "secondary" if tipo == "Digi-Egg" else "main",
+                            "category": tipo,
+                            "cost": a_entero(c.get("level") or c.get("play_cost")),
+                            "power": a_entero(c.get("dp")),
+                            "price": 0.0,
+                            "ban_status": "Unlimited",
+                            "type_line": f"{tipo} / {c.get('color', '')} (Lv.{c.get('level', '-')})",
+                            "desc": c.get("maineffect") or c.get("soureeffect") or "No effect",
+                            "image": img
+                        })
+
+        # 3. MAGIC: THE GATHERING (Scryfall)
+        elif juego == "magic":
+            r = requests.get(
+                "https://api.scryfall.com/cards/search",
+                params={"q": nombre},
+                headers=HEADERS,
+                timeout=12
+            )
+            if r.status_code == 200:
+                for c in r.json().get("data", [])[:30]:
                     img = c.get("image_uris", {}).get("normal", "")
                     if not img and "card_faces" in c:
                         img = c["card_faces"][0].get("image_uris", {}).get("normal", "")
@@ -463,20 +524,11 @@ def buscar():
                         continue
 
                     t_line = c.get("type_line", "")
-                    if "Creature" in t_line:
-                        cat = "Criatura"
-                    elif "Land" in t_line:
-                        cat = "Tierra"
-                    elif "Instant" in t_line or "Sorcery" in t_line:
-                        cat = "Hechizo"
-                    else:
-                        cat = "Otro"
-
+                    cat = "Criatura" if "Creature" in t_line else "Tierra" if "Land" in t_line else "Hechizo" if ("Instant" in t_line or "Sorcery" in t_line) else "Otro"
                     precio_raw = c.get("prices", {}).get("usd") or c.get("prices", {}).get("usd_foil") or 0.0
-                    id_unico = f"MTG_{c['id']}"
 
                     cartas.append({
-                        "id": id_unico,
+                        "id": f"MTG_{c['id']}",
                         "raw_id": str(c.get("collector_number", "")),
                         "name": c.get("name", ""),
                         "game": "magic",
@@ -487,48 +539,51 @@ def buscar():
                         "price": a_flotante(precio_raw),
                         "ban_status": "Unlimited",
                         "type_line": t_line,
-                        "desc": c.get("oracle_text", ""),
-                        "image": guardar_imagen_cache(id_unico, img)
+                        "desc": c.get("oracle_text") or (c["card_faces"][0].get("oracle_text", "") if "card_faces" in c else ""),
+                        "image": img
                     })
 
+        # 4. CARDFIGHT!! VANGUARD
         elif juego == "vanguard":
-            url = f"https://card-fight-vanguard-api.ue.r.appspot.com/api/v1/cards?name={nombre}"
-            r = requests.get(url, headers=HEADERS, timeout=10)
+            r = requests.get(
+                "https://card-fight-vanguard-api.ue.r.appspot.com/api/v1/cards",
+                params={"name": nombre, "page": 1, "pagesize": 30},
+                headers=HEADERS,
+                timeout=15
+            )
             if r.status_code == 200:
-                for c in r.json().get("data", [])[:40]:
-                    id_unico = f"CFV_{c.get('id')}"
+                for c in r.json().get("data", [])[:30]:
                     grado_num = a_entero(c.get("grade"))
-                    poder_num = a_entero(c.get("power"))
                     cartas.append({
-                        "id": id_unico,
+                        "id": f"CFV_{c.get('id')}",
                         "raw_id": str(c.get("id", "")),
                         "name": c.get("name", ""),
                         "game": "vanguard",
                         "zone": "secondary" if grado_num >= 4 else "main",
                         "category": f"Grado {grado_num}",
                         "cost": grado_num,
-                        "power": poder_num,
+                        "power": a_entero(c.get("power")),
                         "price": 0.0,
                         "ban_status": "Unlimited",
                         "type_line": f"Grade {grado_num} / {c.get('clan', '')}",
                         "desc": c.get("effect", ""),
-                        "image": guardar_imagen_cache(id_unico, c.get("imageurl", ""))
+                        "image": c.get("imageurl", "")
                     })
 
+        # 5. FINAL FANTASY TCG (Con caché local en disco)
         elif juego == "fftcg":
             global MEMORIA_FFTCG
             if not MEMORIA_FFTCG:
-                r = requests.get("https://ffdecks.com/api/cards/basic", headers=HEADERS, timeout=15)
-                if r.status_code == 200:
-                    MEMORIA_FFTCG = r.json().get("cards", [])
+                data_ff = cargar_dataset_local("fftcg_cards.json", "https://ffdecks.com/api/cards/basic", timeout=20)
+                MEMORIA_FFTCG = data_ff.get("cards", []) if isinstance(data_ff, dict) else data_ff
 
             termino_low = nombre.lower()
-            coincidencias = [c for c in MEMORIA_FFTCG if termino_low in c.get("name", "").lower()][:40]
+            coincidencias = [c for c in MEMORIA_FFTCG if termino_low in c.get("name", "").lower()][:30]
             for c in coincidencias:
                 codigo = c.get("serial_number", "FF")
-                id_unico = f"FF_{codigo}"
+                img = c.get("image") or (c.get("images", {}).get("full", "") if isinstance(c.get("images"), dict) else "")
                 cartas.append({
-                    "id": id_unico,
+                    "id": f"FF_{codigo}",
                     "raw_id": str(codigo),
                     "name": f"{c.get('name')} ({codigo})",
                     "game": "fftcg",
@@ -540,16 +595,18 @@ def buscar():
                     "ban_status": "Unlimited",
                     "type_line": f"{c.get('type', '')} / {', '.join(c.get('elements', []))}",
                     "desc": c.get("abilities", ""),
-                    "image": guardar_imagen_cache(id_unico, c.get("image", ""))
+                    "image": img
                 })
 
+        # 6. FLESH AND BLOOD (Con caché local en disco)
         elif juego == "fab":
             global MEMORIA_FAB
             if not MEMORIA_FAB:
-                url_fab = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card.json"
-                r = requests.get(url_fab, headers=HEADERS, timeout=20)
-                if r.status_code == 200:
-                    MEMORIA_FAB = r.json()
+                MEMORIA_FAB = cargar_dataset_local(
+                    "fab_cards.json",
+                    "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card.json",
+                    timeout=30
+                )
 
             termino_low = nombre.lower()
             for c in MEMORIA_FAB:
@@ -559,12 +616,11 @@ def buscar():
                     if not img:
                         continue
                     codigo = c.get("unique_id", "FAB")
-                    id_unico = f"FAB_{codigo}"
                     tipos = c.get("types", [])
                     es_sec = any(t in tipos for t in ["Hero", "Weapon", "Equipment"])
                     pitch = c.get("pitch", "")
                     cartas.append({
-                        "id": id_unico,
+                        "id": f"FAB_{codigo}",
                         "raw_id": str(codigo),
                         "name": f"{c.get('name')}" + (f" (Pitch {pitch})" if pitch else ""),
                         "game": "fab",
@@ -576,16 +632,15 @@ def buscar():
                         "ban_status": "Unlimited",
                         "type_line": ", ".join(tipos),
                         "desc": c.get("functional_text_plain", ""),
-                        "image": guardar_imagen_cache(id_unico, img)
+                        "image": img
                     })
-                    if len(cartas) >= 40:
+                    if len(cartas) >= 30:
                         break
 
     except Exception as e:
         print(f"Error en búsqueda de {juego}: {e}")
 
     return jsonify(cartas)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
