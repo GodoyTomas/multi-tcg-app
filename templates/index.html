@@ -66,12 +66,21 @@
         .panel-box { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 15px; }
         .barra-busqueda { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
         .barra-busqueda input { flex: 1; min-width: 150px; }
-        .barra-filtros { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .barra-filtros { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
         .barra-filtros select { flex: 1; font-size: 13px; padding: 7px; }
+
+        .filtros-tcg-box {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+            background: #12141a; border: 1px solid var(--borde); border-radius: 8px;
+            padding: 10px; margin-bottom: 10px;
+        }
+        .filtros-tcg-box select, .filtros-tcg-box input {
+            width: 100%; font-size: 12px; padding: 7px 9px; background: var(--panel);
+        }
 
         .grilla-cartas {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-            gap: 10px; max-height: 72vh; overflow-y: auto; padding-right: 4px;
+            gap: 10px; max-height: 68vh; overflow-y: auto; padding-right: 4px;
         }
         .grilla-mazo {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
@@ -106,14 +115,15 @@
         }
         .badge-precio {
             position: absolute; bottom: 22px; right: 5px; background: rgba(0, 0, 0, 0.85);
-            color: #4ade80; font-size: 10px; font-weight: bold; padding: 1px 4px; border-radius: 3px;
+            color: #4ade80; font-size: 10px; font-weight: bold; padding: 1px 4px; border-radius: 3px; pointer-events: none;
         }
-        .controles-mazo-carta {
-            display: flex; justify-content: space-between; margin-top: 4px; gap: 3px;
+        .badge-rareza {
+            position: absolute; bottom: 22px; left: 5px; background: rgba(124, 58, 237, 0.9);
+            color: #fff; font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px;
+            max-width: 56px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
         }
-        .controles-mazo-carta button {
-            flex: 1; padding: 2px 0; font-size: 11px; font-weight: bold; border-radius: 4px;
-        }
+        .controles-mazo-carta { display: flex; justify-content: space-between; margin-top: 4px; gap: 3px; }
+        .controles-mazo-carta button { flex: 1; padding: 2px 0; font-size: 11px; font-weight: bold; border-radius: 4px; }
 
         /* MÉTRICAS */
         .metricas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin-bottom: 20px; }
@@ -130,15 +140,10 @@
         /* MESA DE DUELO EN VIVO */
         .duelo-jugadores { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         @media (max-width: 750px) { .duelo-jugadores { grid-template-columns: 1fr; } }
-        .lp-box {
-            background: var(--panel); border: 2px solid var(--borde); border-radius: 14px;
-            padding: 20px; text-align: center;
-        }
+        .lp-box { background: var(--panel); border: 2px solid var(--borde); border-radius: 14px; padding: 20px; text-align: center; }
         .lp-numero { font-size: 54px; font-weight: 900; color: #4ade80; margin: 10px 0; font-family: monospace; }
         .lp-botones { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
-        .memory-bar {
-            display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-top: 12px;
-        }
+        .memory-bar { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
         .mem-nodo {
             width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--borde);
             background: #12141a; color: var(--texto); font-weight: bold; font-size: 12px;
@@ -181,7 +186,7 @@
     <section class="vista activa" id="vista-mazos">
         <h2>Crear Nuevo Mazo</h2>
         <div class="crear-mazo-box">
-            <input type="text" id="nuevo-mazo-nombre" placeholder="Nombre del mazo (ej. Tenpai Dragon, Omnimon Red)..." style="flex:1; min-width:220px;">
+            <input type="text" id="nuevo-mazo-nombre" placeholder="Nombre del mazo (ej. Tenpai Dragon, Murakumo, Omnimon)..." style="flex:1; min-width:220px;">
             <select id="nuevo-mazo-juego">
                 <option value="yugioh">Yu-Gi-Oh!</option>
                 <option value="digimon">Digimon TCG</option>
@@ -200,7 +205,7 @@
     <!-- VISTA 2: ARMADOR DE MAZO -->
     <section class="vista" id="vista-armador">
         <div class="builder-layout">
-            <!-- BUSCADOR CON FILTROS -->
+            <!-- BUSCADOR CON FILTROS NATIVOS POR TCG -->
             <div class="panel-box">
                 <div class="barra-busqueda">
                     <select id="juego-busqueda" onchange="sincronizarReglas()">
@@ -211,24 +216,32 @@
                         <option value="fftcg">Final Fantasy TCG</option>
                         <option value="fab">Flesh and Blood</option>
                     </select>
-                    <input type="text" id="input-q" placeholder="Carta en inglés (ej. Tenpai, Ash Blossom, Omnimon)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+                    <input type="text" id="input-q" placeholder="Nombre opcional (podés buscar solo con filtros)..." onkeypress="if(event.key==='Enter') buscarCartas()">
                     <button class="btn-primario" onclick="buscarCartas()">🔍 Buscar</button>
+                    <button onclick="limpiarFiltrosBusqueda()" title="Limpiar filtros y resultados">✖</button>
                 </div>
 
+                <!-- FILTROS ESPECÍFICOS DE CADA TCG -->
+                <div class="filtros-tcg-box" id="filtros-especificos-tcg"></div>
+
+                <!-- FILTROS DE VISUALIZACIÓN -->
                 <div class="barra-filtros">
                     <select id="filtro-categoria" onchange="aplicarFiltrosBusqueda()">
                         <option value="TODAS">Categoría: Todas</option>
                     </select>
                     <select id="filtro-orden" onchange="aplicarFiltrosBusqueda()">
                         <option value="nombre">Ordenar por: Nombre (A-Z)</option>
+                        <option value="precio_desc">Precio USD (Mayor a menor)</option>
+                        <option value="precio_asc">Precio USD (Menor a mayor)</option>
+                        <option value="rareza_desc">Rareza (Mayor a menor)</option>
+                        <option value="rareza_asc">Rareza (Menor a mayor)</option>
                         <option value="costo_desc">Nivel / Costo (Mayor a menor)</option>
                         <option value="costo_asc">Nivel / Costo (Menor a mayor)</option>
                         <option value="poder_desc">ATK / Poder (Mayor a menor)</option>
-                        <option value="precio_desc">Precio USD (Mayor a menor)</option>
                     </select>
                 </div>
 
-                <div id="estado-busqueda" style="font-size:13px; color:var(--gris); margin-bottom:8px;">Tocá (+) para agregar al Mazo Principal/Extra, o (S) para mandar directo al Side Deck.</div>
+                <div id="estado-busqueda" style="font-size:13px; color:var(--gris); margin-bottom:8px;">Elegí un filtro (ej. Nación/Clan, Color, Atributo) o escribí un nombre para buscar.</div>
                 <div class="grilla-cartas" id="resultados-busqueda"></div>
             </div>
 
@@ -307,7 +320,6 @@
             </div>
         </div>
 
-        <!-- PANEL DE RESPUESTA DEL COACH IA -->
         <div class="panel-box" id="panel-coach-resultado" style="display:none; margin-bottom:20px; border-left:4px solid var(--violeta);">
             <h3 style="margin-top:0; color:#c4b5fd;">🧠 Informe del Coach Competitivo IA</h3>
             <div id="texto-coach-ia" style="line-height:1.55; font-size:14px;"></div>
@@ -324,11 +336,10 @@
             </div>
         </div>
 
-        <!-- CALCULADORA HIPERGEOMÉTRICA Y MANO DE PRUEBA -->
         <div class="graficos-layout">
             <div class="panel-box">
                 <h3 style="margin-top:0;">🧮 Calculadora Hipergeométrica (Anti-Brick)</h3>
-                <p style="font-size:13px; color:var(--gris); margin-top:0;">Calculá la probabilidad matemática exacta de robar tus cartas clave (ej. Starters o Handtraps) en tu mano inicial:</p>
+                <p style="font-size:13px; color:var(--gris); margin-top:0;">Calculá la probabilidad exacta de robar tus cartas clave en la mano inicial:</p>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
                     <div>
                         <label style="font-size:12px; color:var(--gris);">Tamaño del Mazo (N)</label>
@@ -357,46 +368,52 @@
         </div>
     </section>
 
-    <!-- VISTA 4: JUEZ IA DE DUELOS (RULINGS) -->
+    <!-- VISTA 4: JUEZ IA & ARQUITECTO DE MAZOS -->
     <section class="vista" id="vista-juez">
-        <div class="panel-box" style="max-width: 900px; margin: 0 auto;">
+        <div class="panel-box" style="max-width: 940px; margin: 0 auto;">
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
                 <div>
-                    <h2 style="margin:0;">⚖️ Juez Oficial IA - Consulta de Rulings en Duelo</h2>
-                    <small style="color:var(--gris);">Resuelve cadenas, timings, prioridad e interacciones usando el texto en inglés de tu mazo activo.</small>
+                    <h2 style="margin:0;">⚖️ Juez Oficial & Arquitecto de Mazos IA</h2>
+                    <small style="color:var(--gris);">Resolvé rulings en duelo o pedile que arme un deck competitivo alrededor de tus cartas favoritas.</small>
                 </div>
-                <select id="juego-juez" style="font-weight:bold;">
-                    <option value="yugioh">Reglamento: Yu-Gi-Oh! TCG</option>
-                    <option value="digimon">Reglamento: Digimon TCG</option>
-                    <option value="magic">Reglamento: Magic: The Gathering</option>
-                    <option value="vanguard">Reglamento: Cardfight!! Vanguard</option>
-                    <option value="fftcg">Reglamento: Final Fantasy TCG</option>
-                    <option value="fab">Reglamento: Flesh and Blood</option>
-                </select>
-                <button onclick="limpiarChatJuez()" title="Borrar historial del chat">🧹 Limpiar</button>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <select id="modo-juez" onchange="actualizarModoJuez()" style="font-weight:bold; border-color:var(--violeta);">
+                        <option value="ruling">⚖️ Modo Juez (Rulings)</option>
+                        <option value="deckbuilder">🏗️ Modo Arquitecto (Armar Deck)</option>
+                    </select>
+                    <select id="juego-juez" style="font-weight:bold;">
+                        <option value="yugioh">Reglamento: Yu-Gi-Oh! TCG</option>
+                        <option value="digimon">Reglamento: Digimon TCG</option>
+                        <option value="magic">Reglamento: Magic: The Gathering</option>
+                        <option value="vanguard">Reglamento: Cardfight!! Vanguard</option>
+                        <option value="fftcg">Reglamento: Final Fantasy TCG</option>
+                        <option value="fab">Reglamento: Flesh and Blood</option>
+                    </select>
+                    <button onclick="limpiarChatJuez()" title="Borrar historial del chat">🧹 Limpiar</button>
+                </div>
             </div>
 
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+                <button class="btn-violeta" onclick="iniciarArmadoAsistido()" style="font-size:12px;">🏗️ Armar Deck con mis Cartas</button>
                 <button onclick="preguntaRapidaJuez('¿Cómo se resuelve esta cadena y qué pasa si niegan la activación vs el efecto?')" style="font-size:12px;">🔗 Resolución de Cadena</button>
                 <button onclick="preguntaRapidaJuez('¿Esta carta pierde el timing (misses the timing) si su condición ocurre en medio de una cadena?')" style="font-size:12px;">⏱️ ¿Pierde el Timing?</button>
-                <button onclick="preguntaRapidaJuez('¿Se puede activar este efecto durante el Damage Step?')" style="font-size:12px;">⚔️ Damage Step</button>
                 <button onclick="preguntaRapidaJuez('Explicame cómo interactúan las cartas principales de mi mazo actual y qué errores de ruling debo evitar.')" style="font-size:12px;">📋 Rulings de mi Mazo</button>
             </div>
 
             <div id="chat-juez-historial" style="background:#12141a; border:1px solid var(--borde); border-radius:8px; padding:15px; height:420px; overflow-y:auto; margin-bottom:12px; display:flex; flex-direction:column; gap:12px;">
                 <div style="background:var(--panel); padding:12px; border-radius:8px; border-left:4px solid var(--acento-sec);">
-                    <b>⚖️ Juez IA:</b> ¡Hola! Estoy listo para asistirte en tus duelos. Elegí el TCG arriba, contame qué cartas están en juego o qué cadena se armó, y te doy el ruling oficial al instante.
+                    <b>⚖️ Juez IA:</b> ¡Hola! Podés consultarme rulings en duelo o cambiar arriba a <b>🏗️ Modo Arquitecto</b> para decirme tus cartas favoritas y armar una estrategia competitiva alrededor de ellas.
                 </div>
             </div>
 
             <div style="display:flex; gap:8px;">
-                <input type="text" id="input-pregunta-juez" placeholder="Ej: Mi rival activa Infinite Impermanence a mi Tenpai Dragon Paidra en Main Phase, ¿qué pasa si encadeno...?" style="flex:1;" onkeypress="if(event.key==='Enter') enviarPreguntaJuez()">
+                <input type="text" id="input-pregunta-juez" placeholder="Ej: Mi rival activa Infinite Impermanence a mi Tenpai Dragon Paidra, ¿qué pasa si encadeno...?" style="flex:1;" onkeypress="if(event.key==='Enter') enviarPreguntaJuez()">
                 <button class="btn-primario" id="btn-enviar-juez" onclick="enviarPreguntaJuez()">Consultar Juez</button>
             </div>
         </div>
     </section>
 
-    <!-- VISTA 5: MESA DE DUELO EN VIVO (CALCULADORA LP + MEMORY GAUGE + DADOS + RELOJ) -->
+    <!-- VISTA 5: MESA DE DUELO EN VIVO -->
     <section class="vista" id="vista-duelo">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
             <h2 style="margin:0;">⚔️ Mesa de Duelo en Vivo</h2>
@@ -409,7 +426,6 @@
         </div>
 
         <div class="duelo-jugadores">
-            <!-- JUGADOR 1 -->
             <div class="lp-box">
                 <input type="text" value="Jugador 1 (Vos)" style="text-align:center; font-weight:bold; font-size:18px; border:none; background:transparent;">
                 <div class="lp-numero" id="lp-j1">8000</div>
@@ -428,7 +444,6 @@
                 </div>
             </div>
 
-            <!-- JUGADOR 2 -->
             <div class="lp-box">
                 <input type="text" value="Jugador 2 (Rival)" style="text-align:center; font-weight:bold; font-size:18px; border:none; background:transparent;">
                 <div class="lp-numero" id="lp-j2">8000</div>
@@ -448,7 +463,6 @@
             </div>
         </div>
 
-        <!-- HISTORIAL DE LP Y DESHACER -->
         <div class="panel-box" style="margin-bottom:20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <h3 style="margin:0;">📜 Historial de Vida (LP)</h3>
@@ -459,14 +473,12 @@
             </div>
         </div>
 
-        <!-- DIGIMON MEMORY GAUGE -->
         <div class="panel-box" style="margin-bottom:20px; text-align:center;">
             <h3 style="margin:0 0 6px 0;">⚡ Digimon TCG - Memory Gauge</h3>
             <small style="color:var(--gris);">Izquierda: Jugador 1 (10 a 1) | Centro: 0 | Derecha: Jugador 2 (1 a 10)</small>
             <div class="memory-bar" id="memory-gauge-bar"></div>
         </div>
 
-        <!-- HERRAMIENTAS DE MESA: RELOJ DE RONDA, DADOS Y MONEDA -->
         <div class="graficos-layout">
             <div class="panel-box" style="text-align:center;">
                 <h3 style="margin-top:0;">⏱️ Cronómetro de Ronda Oficial</h3>
@@ -505,10 +517,241 @@
             fab:      { nombre: "Flesh and Blood", maxCopias: 3, minMain: 60, maxMain: 80, maxSec: 11, maxSide: 15, labelMain: "Arena Deck (60-80)", labelSec: "Héroe, Armas y Equipo", labelSide: "Inventory / Sideboard" }
         };
 
+        const EJEMPLOS_BUSQUEDA = {
+            yugioh: "Nombre opcional (ej: Tenpai, Ash Blossom)...",
+            digimon: "Nombre opcional (ej: Agumon, Omnimon)...",
+            magic: "Nombre opcional (ej: Lightning Bolt, Sol Ring)...",
+            vanguard: "Nombre opcional (o elegí Nación/Clan abajo)...",
+            fftcg: "Nombre opcional (ej: Cloud, Sephiroth)...",
+            fab: "Nombre opcional (ej: Bravo, Command and Conquer)..."
+        };
+
+        const FILTROS_POR_TCG = {
+            yugioh: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Atributo: Todos</option>
+                    <option value="DARK">DARK (Oscuridad)</option>
+                    <option value="LIGHT">LIGHT (Luz)</option>
+                    <option value="FIRE">FIRE (Fuego)</option>
+                    <option value="WATER">WATER (Agua)</option>
+                    <option value="EARTH">EARTH (Tierra)</option>
+                    <option value="WIND">WIND (Viento)</option>
+                    <option value="DIVINE">DIVINE (Divino)</option>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Tipo / Raza: Todos</option>
+                    <option value="Dragon">Dragon</option>
+                    <option value="Spellcaster">Spellcaster</option>
+                    <option value="Warrior">Warrior</option>
+                    <option value="Fiend">Fiend</option>
+                    <option value="Machine">Machine</option>
+                    <option value="Zombie">Zombie</option>
+                    <option value="Fairy">Fairy</option>
+                    <option value="Cyberse">Cyberse</option>
+                    <option value="Beast">Beast</option>
+                    <option value="Wyrm">Wyrm</option>
+                    <option value="Psychic">Psychic</option>
+                    <option value="Dinosaur">Dinosaur</option>
+                    <option value="Aqua">Aqua</option>
+                    <option value="Pyro">Pyro</option>
+                    <option value="Thunder">Thunder</option>
+                    <option value="Plant">Plant</option>
+                    <option value="Insect">Insect</option>
+                    <option value="Illusion">Illusion</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Nivel / Rango: Todos</option>
+                    <option value="1">Nivel / Rango 1</option><option value="2">Nivel / Rango 2</option>
+                    <option value="3">Nivel / Rango 3</option><option value="4">Nivel / Rango 4</option>
+                    <option value="5">Nivel / Rango 5</option><option value="6">Nivel / Rango 6</option>
+                    <option value="7">Nivel / Rango 7</option><option value="8">Nivel / Rango 8</option>
+                    <option value="9">Nivel / Rango 9</option><option value="10">Nivel / Rango 10</option>
+                    <option value="11">Nivel / Rango 11</option><option value="12">Nivel / Rango 12</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Arquetipo (ej: Blue-Eyes, Tenpai Dragon)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `,
+            digimon: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Color: Todos</option>
+                    <option value="Red">Rojo (Red)</option>
+                    <option value="Blue">Azul (Blue)</option>
+                    <option value="Yellow">Amarillo (Yellow)</option>
+                    <option value="Green">Verde (Green)</option>
+                    <option value="Black">Negro (Black)</option>
+                    <option value="Purple">Violeta (Purple)</option>
+                    <option value="White">Blanco (White)</option>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Tipo: Todos</option>
+                    <option value="Digimon">Digimon</option>
+                    <option value="Tamer">Tamer</option>
+                    <option value="Option">Option</option>
+                    <option value="Digi-Egg">Digi-Egg</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Nivel: Todos</option>
+                    <option value="2">Lv. 2 (In-Training)</option>
+                    <option value="3">Lv. 3 (Rookie)</option>
+                    <option value="4">Lv. 4 (Champion)</option>
+                    <option value="5">Lv. 5 (Ultimate)</option>
+                    <option value="6">Lv. 6 (Mega)</option>
+                    <option value="7">Lv. 7 (Ultra)</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Rasgo o Efecto (ej: Royal Knight, Blocker)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `,
+            magic: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Color: Todos</option>
+                    <option value="W">Blanco (White)</option>
+                    <option value="U">Azul (Blue)</option>
+                    <option value="B">Negro (Black)</option>
+                    <option value="R">Rojo (Red)</option>
+                    <option value="G">Verde (Green)</option>
+                    <option value="C">Incoloro (Colorless)</option>
+                    <option value="M">Multicolor</option>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Tipo: Todos</option>
+                    <option value="Creature">Criatura (Creature)</option>
+                    <option value="Instant">Instantáneo (Instant)</option>
+                    <option value="Sorcery">Conjuro (Sorcery)</option>
+                    <option value="Enchantment">Encantamiento (Enchantment)</option>
+                    <option value="Artifact">Artefacto (Artifact)</option>
+                    <option value="Planeswalker">Planeswalker</option>
+                    <option value="Land">Tierra (Land)</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Coste Maná (CMC): Todos</option>
+                    <option value="0">Maná 0</option><option value="1">Maná 1</option>
+                    <option value="2">Maná 2</option><option value="3">Maná 3</option>
+                    <option value="4">Maná 4</option><option value="5">Maná 5</option>
+                    <option value="6+">Maná 6 o más</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Tribu o Keyword (ej: Dragon, Elf, Flying)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `,
+            vanguard: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Nación / Clan: Todos</option>
+                    <optgroup label="Naciones (Standard / D Series)">
+                        <option value="Dragon Empire">Dragon Empire</option>
+                        <option value="Dark States">Dark States</option>
+                        <option value="Brandt Gate">Brandt Gate</option>
+                        <option value="Keter Sanctuary">Keter Sanctuary</option>
+                        <option value="Stoicheia">Stoicheia</option>
+                        <option value="Lyrical Monasterio">Lyrical Monasterio</option>
+                    </optgroup>
+                    <optgroup label="Clanes - Dragon Empire">
+                        <option value="Murakumo">Murakumo</option>
+                        <option value="Kagero">Kagero</option>
+                        <option value="Narukami">Narukami</option>
+                        <option value="Nubatama">Nubatama</option>
+                        <option value="Tachikaze">Tachikaze</option>
+                    </optgroup>
+                    <optgroup label="Clanes - United Sanctuary">
+                        <option value="Royal Paladin">Royal Paladin</option>
+                        <option value="Shadow Paladin">Shadow Paladin</option>
+                        <option value="Gold Paladin">Gold Paladin</option>
+                        <option value="Oracle Think Tank">Oracle Think Tank</option>
+                        <option value="Angel Feather">Angel Feather</option>
+                        <option value="Genesis">Genesis</option>
+                    </optgroup>
+                    <optgroup label="Clanes - Dark Zone">
+                        <option value="Dark Irregulars">Dark Irregulars</option>
+                        <option value="Pale Moon">Pale Moon</option>
+                        <option value="Spike Brothers">Spike Brothers</option>
+                        <option value="Gear Chronicle">Gear Chronicle</option>
+                    </optgroup>
+                    <optgroup label="Clanes - Star Gate">
+                        <option value="Link Joker">Link Joker</option>
+                        <option value="Nova Grappler">Nova Grappler</option>
+                        <option value="Dimension Police">Dimension Police</option>
+                    </optgroup>
+                    <optgroup label="Clanes - Magallanica & Zoo">
+                        <option value="Aqua Force">Aqua Force</option>
+                        <option value="Granblue">Granblue</option>
+                        <option value="Bermuda Triangle">Bermuda Triangle</option>
+                        <option value="Megacolony">Megacolony</option>
+                        <option value="Great Nature">Great Nature</option>
+                        <option value="Neo Nectar">Neo Nectar</option>
+                    </optgroup>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Grado: Todos</option>
+                    <option value="0">Grado 0</option><option value="1">Grado 1</option>
+                    <option value="2">Grado 2</option><option value="3">Grado 3</option>
+                    <option value="4">Grado 4</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Tipo de Unidad: Todos</option>
+                    <option value="Normal Unit">Normal Unit</option>
+                    <option value="Trigger Unit">Trigger Unit</option>
+                    <option value="G Unit">G Unit</option>
+                    <option value="Order">Order</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Arquetipo / Raza (ej: Stealth, Yasuie, Blaster)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `,
+            fftcg: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Elemento: Todos</option>
+                    <option value="Fire">Fuego (Fire)</option><option value="Ice">Hielo (Ice)</option>
+                    <option value="Wind">Viento (Wind)</option><option value="Earth">Tierra (Earth)</option>
+                    <option value="Lightning">Rayo (Lightning)</option><option value="Water">Agua (Water)</option>
+                    <option value="Light">Luz (Light)</option><option value="Dark">Oscuridad (Dark)</option>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Tipo: Todos</option>
+                    <option value="Forward">Forward</option><option value="Backup">Backup</option>
+                    <option value="Summon">Summon</option><option value="Monster">Monster</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Costo CP: Todos</option>
+                    <option value="1">Costo 1</option><option value="2">Costo 2</option>
+                    <option value="3">Costo 3</option><option value="4">Costo 4</option>
+                    <option value="5">Costo 5</option><option value="6+">Costo 6 o más</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Juego FF / Job (ej: VII, X, XIV, SOLDIER)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `,
+            fab: `
+                <select id="tcg-f1" onchange="buscarCartas()">
+                    <option value="">Clase / Talento: Todos</option>
+                    <optgroup label="Clases">
+                        <option value="Warrior">Warrior</option><option value="Brute">Brute</option>
+                        <option value="Guardian">Guardian</option><option value="Ninja">Ninja</option>
+                        <option value="Wizard">Wizard</option><option value="Runeblade">Runeblade</option>
+                        <option value="Ranger">Ranger</option><option value="Mechanologist">Mechanologist</option>
+                        <option value="Assassin">Assassin</option><option value="Illusionist">Illusionist</option>
+                        <option value="Generic">Generic</option>
+                    </optgroup>
+                    <optgroup label="Talentos">
+                        <option value="Light">Light</option><option value="Shadow">Shadow</option>
+                        <option value="Elemental">Elemental</option><option value="Draconic">Draconic</option>
+                        <option value="Ice">Ice</option><option value="Lightning">Lightning</option>
+                        <option value="Earth">Earth</option>
+                    </optgroup>
+                </select>
+                <select id="tcg-f2" onchange="buscarCartas()">
+                    <option value="">Tipo: Todos</option>
+                    <option value="Hero">Hero</option><option value="Action">Action</option>
+                    <option value="Attack Reaction">Attack Reaction</option>
+                    <option value="Defense Reaction">Defense Reaction</option>
+                    <option value="Instant">Instant</option><option value="Equipment">Equipment</option>
+                    <option value="Weapon">Weapon</option>
+                </select>
+                <select id="tcg-f3" onchange="buscarCartas()">
+                    <option value="">Pitch (Color): Todos</option>
+                    <option value="1">Pitch 1 (Rojo)</option>
+                    <option value="2">Pitch 2 (Amarillo)</option>
+                    <option value="3">Pitch 3 (Azul)</option>
+                </select>
+                <input type="text" id="tcg-f4" placeholder="Keyword / Texto (ej: Go again, Dominate)..." onkeypress="if(event.key==='Enter') buscarCartas()">
+            `
+        };
+
         let mazosGuardados = [];
         let UltimosResultados = [];
         let ResultadosFiltrados = [];
         let ManoSimuladaActual = [];
+        let mazoRestanteSimulacion = [];
         let cartaModalActual = null;
         let cartaEnFocoJuez = null;
         let mazoActual = { id: null, name: "Nuevo Mazo", game: "yugioh", main: [], secondary: [], side: [] };
@@ -565,9 +808,7 @@
             mazoActual = { id: null, name: nombre, game: juego, main: [], secondary: [], side: [] };
             document.getElementById('juego-busqueda').value = juego;
             document.getElementById('nombre-mazo-actual').value = nombre;
-            document.getElementById('resultados-busqueda').innerHTML = '';
             sincronizarReglas();
-            renderizarMazo();
             cambiarVista('armador');
         }
 
@@ -578,9 +819,7 @@
             asegurarEstructuraMazo();
             document.getElementById('juego-busqueda').value = mazoActual.game;
             document.getElementById('nombre-mazo-actual').value = mazoActual.name;
-            document.getElementById('resultados-busqueda').innerHTML = '';
             sincronizarReglas();
-            renderizarMazo();
             cambiarVista('armador');
         }
 
@@ -618,6 +857,22 @@
             alert(`Mazo "${mazoActual.name}" guardado con éxito.`);
         }
 
+        function renderizarFiltrosTCG(juego) {
+            document.getElementById('filtros-especificos-tcg').innerHTML = FILTROS_POR_TCG[juego] || '';
+        }
+
+        function limpiarFiltrosBusqueda() {
+            const juego = document.getElementById('juego-busqueda').value;
+            const r = REGLAS[juego];
+            UltimosResultados = [];
+            ResultadosFiltrados = [];
+            document.getElementById('input-q').value = '';
+            renderizarFiltrosTCG(juego);
+            document.getElementById('resultados-busqueda').innerHTML = '';
+            document.getElementById('filtro-categoria').innerHTML = '<option value="TODAS">Categoría: Todas</option>';
+            document.getElementById('estado-busqueda').innerText = `Filtros limpios. Listo para buscar en ${r.nombre}.`;
+        }
+
         function sincronizarReglas() {
             const juego = document.getElementById('juego-busqueda').value;
             mazoActual.game = juego;
@@ -625,6 +880,16 @@
             document.getElementById('label-main-zone').innerText = r.labelMain;
             document.getElementById('label-sec-zone').innerText = r.labelSec;
             document.getElementById('label-side-zone').innerText = r.labelSide;
+
+            UltimosResultados = [];
+            ResultadosFiltrados = [];
+            document.getElementById('input-q').value = '';
+            document.getElementById('input-q').placeholder = EJEMPLOS_BUSQUEDA[juego] || "Carta en inglés...";
+            renderizarFiltrosTCG(juego);
+            document.getElementById('resultados-busqueda').innerHTML = '';
+            document.getElementById('filtro-categoria').innerHTML = '<option value="TODAS">Categoría: Todas</option>';
+            document.getElementById('estado-busqueda').innerText = `Listo para buscar cartas de ${r.nombre}. Podés filtrar directo sin escribir nombre.`;
+
             renderizarMazo();
         }
 
@@ -637,14 +902,24 @@
         async function buscarCartas() {
             const juego = document.getElementById('juego-busqueda').value;
             const q = document.getElementById('input-q').value.trim();
+            const f1 = (document.getElementById('tcg-f1')?.value || '').trim();
+            const f2 = (document.getElementById('tcg-f2')?.value || '').trim();
+            const f3 = (document.getElementById('tcg-f3')?.value || '').trim();
+            const f4 = (document.getElementById('tcg-f4')?.value || '').trim();
+
             const estado = document.getElementById('estado-busqueda');
             const cont = document.getElementById('resultados-busqueda');
-            if (!q) return;
 
-            estado.innerText = 'Consultando API en inglés y descargando imágenes...';
+            if (!q && !f1 && !f2 && !f3 && !f4) {
+                estado.innerText = 'Escribí un nombre o elegí al menos un filtro arriba para buscar.';
+                return;
+            }
+
+            estado.innerText = `Buscando en ${REGLAS[juego].nombre}...`;
             cont.innerHTML = '';
 
-            const res = await fetch(`/api/buscar?juego=${juego}&q=${encodeURIComponent(q)}`);
+            const params = new URLSearchParams({ juego, q, f1, f2, f3, f4 });
+            const res = await fetch(`/api/buscar?${params.toString()}`);
             UltimosResultados = await res.json();
 
             const categorias = [...new Set(UltimosResultados.map(c => c.category))];
@@ -673,22 +948,30 @@
 
             ResultadosFiltrados.sort((a, b) => {
                 if (orden === 'nombre') return a.name.localeCompare(b.name);
+                if (orden === 'precio_desc') return (b.price || 0) - (a.price || 0);
+                if (orden === 'precio_asc') {
+                    const pa = a.price > 0 ? a.price : Infinity;
+                    const pb = b.price > 0 ? b.price : Infinity;
+                    return pa - pb;
+                }
+                if (orden === 'rareza_desc') return (b.rarity_rank || 0) - (a.rarity_rank || 0) || (b.price || 0) - (a.price || 0);
+                if (orden === 'rareza_asc') return (a.rarity_rank || 0) - (b.rarity_rank || 0) || (a.price || 0) - (b.price || 0);
                 if (orden === 'costo_desc') return (b.cost || 0) - (a.cost || 0);
                 if (orden === 'costo_asc') return (a.cost || 0) - (b.cost || 0);
                 if (orden === 'poder_desc') return (b.power || 0) - (a.power || 0);
-                if (orden === 'precio_desc') return (b.price || 0) - (a.price || 0);
                 return 0;
             });
 
             estado.innerText = ResultadosFiltrados.length
                 ? `Mostrando ${ResultadosFiltrados.length} cartas. (+) Mazo Principal/Extra | (S) Side Deck.`
-                : 'No hay cartas que coincidan con el filtro.';
+                : 'No se encontraron cartas con esa combinación de filtros.';
 
             cont.innerHTML = ResultadosFiltrados.map((c, idx) => `
                 <div class="carta-item">
                     ${obtenerEtiquetaBan(c.ban_status)}
                     <button class="btn-add-rapido" onclick="event.stopPropagation(); agregarCartaObjeto(ResultadosFiltrados[${idx}], false)" title="Agregar al Mazo">+</button>
                     <button class="btn-side-rapido" onclick="event.stopPropagation(); agregarCartaObjeto(ResultadosFiltrados[${idx}], true)" title="Agregar al Side Deck">S</button>
+                    ${c.rarity ? `<span class="badge-rareza" title="Rareza: ${c.rarity}">${c.rarity}</span>` : ''}
                     ${c.price > 0 ? `<span class="badge-precio">$${Number(c.price).toFixed(2)}</span>` : ''}
                     <img src="${c.image}" alt="${c.name}" onclick="verDetalleCarta(ResultadosFiltrados[${idx}])">
                     <p onclick="verDetalleCarta(ResultadosFiltrados[${idx}])">${c.name}</p>
@@ -696,7 +979,7 @@
             `).join('');
         }
 
-        // --- GESTIÓN DEL MAZO AGRUPADO (MAIN + EXTRA + SIDE) ---
+        // --- GESTIÓN DEL MAZO AGRUPADO ---
         function agregarCartaObjeto(carta, irASide = false) {
             if (!carta) return;
             asegurarEstructuraMazo();
@@ -833,6 +1116,7 @@
                     <div style="color:var(--gris); font-size:13px; margin-bottom:10px;">
                         ${c.type_line}<br>
                         Nivel/Costo: <b>${c.cost}</b> | ATK/Poder: <b>${c.power}</b>
+                        ${c.rarity ? ` | Rareza: <b style="color:#c4b5fd;">${c.rarity}</b>` : ''}
                         ${c.price > 0 ? ` | Precio: <b style="color:#4ade80;">$${Number(c.price).toFixed(2)} USD</b>` : ''}
                     </div>
                     <div class="modal-desc">${c.desc || 'No effect text.'}</div>
@@ -851,7 +1135,7 @@
             document.getElementById('modal-carta').classList.remove('activo');
         }
 
-        // --- EXPORTACIÓN (.YDK CON SIDE DECK / TEXTO) ---
+        // --- EXPORTACIÓN (.YDK / TEXTO) ---
         function exportarMazoTexto() {
             asegurarEstructuraMazo();
             if (!mazoActual.main.length && !mazoActual.secondary.length && !mazoActual.side.length) {
@@ -888,7 +1172,7 @@
             }
         }
 
-        // --- MÉTRICAS, HIPERGEOMÉTRICA Y COACH IA ---
+        // --- MÉTRICAS, HIPERGEOMÉTRICA, SIMULADOR Y COACH IA ---
         function calcularMetricas() {
             asegurarEstructuraMazo();
             const r = REGLAS[mazoActual.game];
@@ -898,7 +1182,6 @@
 
             document.getElementById('kpi-total-main').innerText = totalMain;
             document.getElementById('kpi-total-sec').innerText = `${totalSec} / ${totalSide}`;
-
             if (totalMain > 0) document.getElementById('hip-mazo').value = totalMain;
 
             const estadoLegal = document.getElementById('kpi-estado-legal');
@@ -965,9 +1248,7 @@
             if (k === 0 || k === n) return 1;
             k = Math.min(k, n - k);
             let res = 1;
-            for (let i = 1; i <= k; i++) {
-                res = (res * (n - k + i)) / i;
-            }
+            for (let i = 1; i <= k; i++) res = (res * (n - k + i)) / i;
             return res;
         }
 
@@ -1023,11 +1304,7 @@
                 const res = await fetch('/api/analizar_mazo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        juego: mazoActual.game,
-                        nombre: mazoActual.name,
-                        lista_mazo: resumen
-                    })
+                    body: JSON.stringify({ juego: mazoActual.game, nombre: mazoActual.name, lista_mazo: resumen })
                 });
                 const data = await res.json();
                 textoDiv.innerHTML = (data.respuesta || 'Sin respuesta.').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
@@ -1038,8 +1315,6 @@
             btn.disabled = false;
             btn.innerText = '🧠 Analizar y Optimizar Mazo con IA';
         }
-
-        let mazoRestanteSimulacion = [];
 
         function renderizarManoSimulada() {
             const cont = document.getElementById('grilla-mano-prueba');
@@ -1054,6 +1329,8 @@
         function simularMano(cantidad = 5) {
             const cont = document.getElementById('grilla-mano-prueba');
             if (mazoActual.main.length < cantidad) {
+                ManoSimuladaActual = [];
+                mazoRestanteSimulacion = [];
                 cont.innerHTML = `<p style="color:var(--gris); grid-column: 1 / -1;">Necesitás al menos ${cantidad} cartas en el Mazo Principal para simular la mano.</p>`;
                 return;
             }
@@ -1080,16 +1357,42 @@
             renderizarManoSimulada();
         }
 
-        // --- JUEZ IA DE DUELOS ---
+        // --- JUEZ IA & ARQUITECTO DE MAZOS ---
         function limpiarChatJuez() {
             cartaEnFocoJuez = null;
             document.getElementById('chat-juez-historial').innerHTML = `
                 <div style="background:var(--panel); padding:12px; border-radius:8px; border-left:4px solid var(--acento-sec);">
-                    <b>⚖️ Juez IA:</b> Chat reiniciado. Contame qué cartas están en juego o qué cadena se armó.
+                    <b>⚖️ Juez IA:</b> Chat reiniciado. Consultame un ruling o cambiá a <b>🏗️ Modo Arquitecto</b> para armar un deck.
                 </div>
             `;
         }
+
+        function actualizarModoJuez() {
+            const modo = document.getElementById('modo-juez').value;
+            const input = document.getElementById('input-pregunta-juez');
+            const btn = document.getElementById('btn-enviar-juez');
+            if (modo === 'deckbuilder') {
+                input.placeholder = "Ej: Armame un deck competitivo alrededor de Blue-Eyes White Dragon y Maiden of White...";
+                btn.innerText = "Armar Deck IA";
+                btn.className = "btn-violeta";
+            } else {
+                input.placeholder = "Ej: Mi rival activa Infinite Impermanence a mi Tenpai Dragon Paidra, ¿qué pasa si encadeno...?";
+                btn.innerText = "Consultar Juez";
+                btn.className = "btn-primario";
+            }
+        }
+
+        function iniciarArmadoAsistido() {
+            document.getElementById('modo-juez').value = 'deckbuilder';
+            actualizarModoJuez();
+            const input = document.getElementById('input-pregunta-juez');
+            input.value = "Armame un deck competitivo respetando obligatoriamente estas cartas y creá una estrategia alrededor de ellas: ";
+            input.focus();
+        }
+
         function preguntaRapidaJuez(texto) {
+            document.getElementById('modo-juez').value = 'ruling';
+            actualizarModoJuez();
             document.getElementById('input-pregunta-juez').value = texto;
             document.getElementById('input-pregunta-juez').focus();
         }
@@ -1099,6 +1402,8 @@
             cerrarModal();
             cartaEnFocoJuez = carta;
             cambiarVista('juez');
+            document.getElementById('modo-juez').value = 'ruling';
+            actualizarModoJuez();
             document.getElementById('juego-juez').value = carta.game || mazoActual.game;
             const input = document.getElementById('input-pregunta-juez');
             input.value = `Sobre la carta "${carta.name}": ¿cómo funciona su efecto exactamente y qué rulings o interacciones importantes debo tener en cuenta en duelo?`;
@@ -1110,6 +1415,7 @@
             const btn = document.getElementById('btn-enviar-juez');
             const chat = document.getElementById('chat-juez-historial');
             const juego = document.getElementById('juego-juez').value;
+            const modo = document.getElementById('modo-juez').value;
             const pregunta = input.value.trim();
 
             if (!pregunta) return;
@@ -1121,7 +1427,7 @@
             `;
             input.value = '';
             btn.disabled = true;
-            btn.innerText = 'Analizando...';
+            btn.innerText = modo === 'deckbuilder' ? 'Armando deck...' : 'Analizando...';
             chat.scrollTop = chat.scrollHeight;
 
             const cartasContexto = [
@@ -1135,19 +1441,19 @@
                 const res = await fetch('/api/juez', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        juego: juego,
-                        pregunta: pregunta,
-                        contexto_cartas: resumenCartas
-                    })
+                    body: JSON.stringify({ juego, modo, pregunta, contexto_cartas: resumenCartas })
                 });
                 const data = await res.json();
                 const textoFormateado = (data.respuesta || 'Error al consultar.').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+                const titulo = modo === 'deckbuilder'
+                    ? `🏗️ Arquitecto de Mazos (${REGLAS[juego].nombre})`
+                    : `⚖️ Juez Oficial (${REGLAS[juego].nombre})`;
+                const colorBorde = modo === 'deckbuilder' ? 'var(--violeta)' : 'var(--acento)';
 
                 chat.innerHTML += `
-                    <div style="background:var(--panel); padding:12px; border-radius:8px; border-left:4px solid var(--acento); line-height:1.5;">
+                    <div style="background:var(--panel); padding:12px; border-radius:8px; border-left:4px solid ${colorBorde}; line-height:1.5;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                            <b>⚖️ Juez Oficial (${REGLAS[juego].nombre})</b>
+                            <b>${titulo}</b>
                             <small style="color:var(--gris);">${data.motor || ''}</small>
                         </div>
                         <div>${textoFormateado}</div>
@@ -1158,7 +1464,7 @@
             }
 
             btn.disabled = false;
-            btn.innerText = 'Consultar Juez';
+            actualizarModoJuez();
             chat.scrollTop = chat.scrollHeight;
         }
 
@@ -1317,6 +1623,7 @@
         cargarMazosServidor();
         sincronizarReglas();
         renderizarMemoryGauge();
+        renderizarHistorialLP();
     </script>
 </body>
 </html>
