@@ -1046,6 +1046,32 @@
             }
         }
 
+        function moverZonaCarta(zonaOrigen, cardId) {
+            const listaOrigen = obtenerListaPorZona(zonaOrigen);
+            const idx = listaOrigen.findIndex(c => c.id === cardId);
+            if (idx === -1) return;
+
+            const carta = listaOrigen[idx];
+            const r = REGLAS[mazoActual.game];
+            let destino = 'side';
+
+            if (zonaOrigen === 'side') {
+                destino = (carta.zone === 'secondary' && r.maxSec > 0) ? 'sec' : 'main';
+            }
+
+            const listaDestino = obtenerListaPorZona(destino);
+            const limite = destino === 'side' ? r.maxSide : (destino === 'sec' ? r.maxSec : r.maxMain);
+
+            if (listaDestino.length >= limite) {
+                alert(`La zona de destino ya alcanzó su límite de ${limite} cartas.`);
+                return;
+            }
+
+            listaOrigen.splice(idx, 1);
+            listaDestino.push(carta);
+            renderizarMazo();
+        }
+
         function verDetallePorIdMazo(cardId) {
             const encontrada = [...mazoActual.main, ...mazoActual.secondary, ...mazoActual.side].find(c => c.id === cardId);
             if (encontrada) verDetalleCarta(encontrada);
@@ -1090,6 +1116,7 @@
                     <img src="${g.carta.image}" alt="${g.carta.name}" onclick="verDetallePorIdMazo('${g.carta.id}')">
                     <div class="controles-mazo-carta">
                         <button onclick="quitarUnaCopiaPorId('${zona}', '${g.carta.id}')" title="Quitar 1 copia">-</button>
+                        <button class="btn-secundario" onclick="moverZonaCarta('${zona}', '${g.carta.id}')" title="Mover 1 copia entre Mazo y Side">⇄</button>
                         <button class="btn-primario" onclick="sumarUnaCopiaPorId('${zona}', '${g.carta.id}')" title="Sumar 1 copia">+</button>
                     </div>
                 </div>
